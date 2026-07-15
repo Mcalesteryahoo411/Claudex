@@ -6,6 +6,8 @@ readonly codex_home="${CODEX_HOME:-$HOME/.codex}"
 readonly codex_auth_file="${CLAUDEX_CODEX_SOURCE_AUTH_FILE:-$codex_home/auth.json}"
 readonly bridge_auth_dir="${CLAUDEX_CODEX_AUTH_DIR:-$config_dir/codex-accounts}"
 readonly bridge_auth_file="$bridge_auth_dir/codex-claudex-managed.json"
+readonly usage_cache_dir="$config_dir/usage-cache"
+readonly usage_account_file="$config_dir/codex-usage-account"
 
 fail() {
   printf 'claudex: %s\n' "$*" >&2
@@ -13,6 +15,16 @@ fail() {
 
 clear_bridge_session() {
   rm -f "$bridge_auth_file"
+}
+
+clear_account_scoped_state() {
+  rm -f "$usage_account_file" \
+    "$usage_cache_dir/limits.json" \
+    "$usage_cache_dir/summary" \
+    "$usage_cache_dir/last-attempt" \
+    "$usage_cache_dir/last-success"
+  rmdir "$usage_cache_dir/refresh.lock" 2>/dev/null || true
+  rmdir "$usage_cache_dir" 2>/dev/null || true
 }
 
 codex_is_logged_in() {
@@ -54,11 +66,18 @@ sync_session() {
   mkdir -p "$bridge_auth_dir"
   chmod 700 "$bridge_auth_dir" 2>/dev/null || true
 
-  local should_write=1
+  local previous_account="" source_account should_write=1
+  if [[ -s "$bridge_auth_file" ]]; then
+    previous_account=$(jq -r '.account_id // empty' "$bridge_auth_file" 2>/dev/null || true)
+  fi
+  source_account=$(jq -r '.tokens.account_id' "$codex_auth_file")
   if [[ -s "$bridge_auth_file" ]] && jq -e --slurpfile source "$codex_auth_file" '
     .type == "codex"
     and (.access_token | type == "string" and length > 0)
     and .account_id == $source[0].tokens.account_id
+    and .access_token == $source[0].tokens.access_token
+    and .refresh_token == $source[0].tokens.refresh_token
+    and (.id_token // "") == ($source[0].tokens.id_token // "")
     and ((.disabled // false) != true)
     and ((.expired // false) != true)
     and ((.last_refresh // "") | tostring) >= (($source[0].last_refresh // "") | tostring)
@@ -82,7 +101,49 @@ sync_session() {
     }' "$codex_auth_file" > "$temporary"
     chmod 600 "$temporary"
     mv -f "$temporary" "$bridge_auth_file"
+    if [[ -n "$previous_account" && "$previous_account" != "$source_account" ]]; then
+      clear_account_scoped_state
+    fi
   fi
+}
+
+auth_fingerprint() {
+  if [[ ! -r "$codex_auth_file" ]]; then
+    printf '%s\n' missing
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$codex_auth_file" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$codex_auth_file" | awk '{print $1}'
+  else
+    cksum "$codex_auth_file" | awk '{print $1 ":" $2}'
+  fi
+}
+
+watch_session() {
+  local parent_pid="${1:-}" interval="${CLAUDEX_AUTH_WATCH_SECONDS:-2}" fingerprint next
+  [[ "$parent_pid" =~ ^[0-9]+$ && "$parent_pid" -gt 1 ]] || {
+    fail 'watch requires a valid parent process ID.'
+    return 2
+  }
+  [[ "$interval" =~ ^[0-9]+$ && "$interval" -ge 1 && "$interval" -le 60 ]] || {
+    fail 'CLAUDEX_AUTH_WATCH_SECONDS must be an integer from 1 to 60.'
+    return 2
+  }
+  fingerprint=$(auth_fingerprint)
+  if [[ -n "${CLAUDEX_AUTH_WATCH_READY_FILE:-}" ]]; then
+    (umask 077; printf '%s\n' ready > "$CLAUDEX_AUTH_WATCH_READY_FILE")
+  fi
+  while kill -0 "$parent_pid" 2>/dev/null; do
+    sleep "$interval"
+    next=$(auth_fingerprint)
+    [[ "$next" != "$fingerprint" ]] || continue
+    if sync_session >/dev/null 2>&1; then
+      fingerprint="$next"
+    elif [[ "$next" == missing ]]; then
+      # The bridge has already been cleared. Wait quietly for the next login.
+      fingerprint="$next"
+    fi
+  done
 }
 
 login() {
@@ -124,8 +185,9 @@ status() {
 
 case "${1:-sync}" in
   sync) sync_session ;;
+  watch) watch_session "${2:-}" ;;
   login) login ;;
   logout) logout ;;
   status) status ;;
-  *) fail 'usage: codex-session [sync|login|logout|status]'; exit 2 ;;
+  *) fail 'usage: codex-session [sync|watch PARENT_PID|login|logout|status]'; exit 2 ;;
 esac

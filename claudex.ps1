@@ -193,6 +193,22 @@ function Ensure-Proxy {
     Fail 'local proxy did not become healthy. Run: claudex --doctor'
 }
 
+function Start-AuthWatcher {
+    if ($env:CLAUDEX_SKIP_AUTH_WATCHER -eq '1') { return $null }
+    $hostExecutable = (Get-Process -Id $PID).Path
+    $quotedHelper = '"' + $codexSessionHelper.Replace('"', '\"') + '"'
+    $arguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $quotedHelper,
+        'watch', '-ParentProcessId', [string] $PID)
+    try {
+        $parameters = @{ FilePath = $hostExecutable; ArgumentList = $arguments; PassThru = $true }
+        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { $parameters.WindowStyle = 'Hidden' }
+        return Start-Process @parameters
+    } catch {
+        [Console]::Error.WriteLine('claudex: warning: automatic Codex account switching could not be started for this session.')
+        return $null
+    }
+}
+
 function Load-ClaudeCapabilities {
     $claudeCommand = Get-Command claude -ErrorAction SilentlyContinue
     if (-not $claudeCommand) { Fail 'Claude Code was not found. Install Claude Code and retry.' }
@@ -419,6 +435,7 @@ if ($forwardArguments.Count -eq 0 -or $forwardArguments[0] -notin @('update', 'u
 
 if ($useProxy) {
     Ensure-Proxy
+    $authWatcher = Start-AuthWatcher
 
     $env:ANTHROPIC_BASE_URL = $proxyUrl
     $env:ANTHROPIC_AUTH_TOKEN = $proxyToken
@@ -444,6 +461,7 @@ if ($useProxy) {
     $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = [string] $contextWindowNumber
     $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = [string] $compactWindowNumber
 } else {
+    $authWatcher = $null
     Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
     Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue
 }
@@ -529,8 +547,26 @@ function Update-ResumeFooter([string] $Marker) {
     $candidates = @(Get-ChildItem -LiteralPath $projectDirectory -File -Filter '*.jsonl' |
         Where-Object { $_.LastWriteTimeUtc -gt $markerTime } |
         Sort-Object LastWriteTimeUtc -Descending)
-    if ($candidates.Count -ne 1) { return }
-    $latest = $candidates[0]
+    $latest = $null
+    foreach ($candidate in $candidates) {
+        $candidateSessionId = [IO.Path]::GetFileNameWithoutExtension($candidate.Name)
+        if ($candidateSessionId -notmatch '^[0-9a-fA-F-]{36}$') { continue }
+        $matchesRootSession = $false
+        foreach ($line in @(Get-Content -LiteralPath $candidate.FullName -Tail 200 -ErrorAction SilentlyContinue)) {
+            try {
+                $record = $line | ConvertFrom-Json
+                $recordSessionId = if ($null -ne $record.PSObject.Properties['sessionId']) { [string] $record.sessionId } else { '' }
+                $recordCwd = if ($null -ne $record.PSObject.Properties['cwd']) { [string] $record.cwd } else { '' }
+                $isSidechain = $null -ne $record.PSObject.Properties['isSidechain'] -and [bool] $record.isSidechain
+                if ($recordSessionId -eq $candidateSessionId -and $recordCwd -eq (Get-Location).Path -and -not $isSidechain) {
+                    $matchesRootSession = $true
+                    break
+                }
+            } catch { }
+        }
+        if ($matchesRootSession) { $latest = $candidate; break }
+    }
+    if ($null -eq $latest) { return }
     $sessionId = [IO.Path]::GetFileNameWithoutExtension($latest.Name)
     if ($sessionId -notmatch '^[0-9a-fA-F-]{36}$') { return }
     $escape = [char]27
@@ -548,6 +584,10 @@ try {
     $exitCode = $LASTEXITCODE
     if ($rewriteResumeFooter -and $exitCode -eq 0) { Update-ResumeFooter $resumeMarker }
 } finally {
+    if ($authWatcher -and -not $authWatcher.HasExited) {
+        Stop-Process -Id $authWatcher.Id -Force -ErrorAction SilentlyContinue
+        $authWatcher.WaitForExit(2000) | Out-Null
+    }
     if ($resumeMarker) { Remove-Item -LiteralPath $resumeMarker -Force -ErrorAction SilentlyContinue }
     Set-MousePointer 'default'
     if ($null -eq $previousSessionMode) { Remove-Item Env:CLAUDEX_SESSION_MODE -ErrorAction SilentlyContinue }

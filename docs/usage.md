@@ -70,7 +70,10 @@ trying a stale credential. Sign in again with `claudex --login`.
 Inside an interactive session, `/usage-limit` displays the detailed report.
 The status line refreshes a compact summary asynchronously. Selecting an
 account invalidates the prior quota cache so values from different accounts
-cannot be mixed. Disabled and expired credentials are never selected.
+cannot be mixed. Changing the active login in Codex Desktop or the Codex CLI is
+detected while Claudex is running; the local bridge follows the new account and
+clears account-scoped usage state automatically. Disabled and expired
+credentials are never selected.
 
 ## Claude in Chrome
 

@@ -49,7 +49,12 @@ that preload or the GPT proxy environment.
    Claudex's private credential directory with restrictive permissions.
 5. A newer source refresh, different account, disabled bridge, or expired
    bridge causes a replacement.
-6. Logout always removes the bridge, even if the upstream logout command fails.
+6. While a proxied Claudex session is open, a lightweight watcher fingerprints
+   the standard Codex credential file. A Codex Desktop or CLI account change is
+   synchronized atomically without exposing token contents.
+7. An account change clears the explicit usage-account selection and sanitized
+   quota cache so data from the previous account cannot appear in the footer.
+8. Logout always removes the bridge, even if the upstream logout command fails.
 
 Claudex never places an OAuth token in process arguments or intended terminal
 output. The repository contains no credentials.

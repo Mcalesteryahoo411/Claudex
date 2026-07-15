@@ -15,11 +15,11 @@ This audit targets Claude Code 2.1.210, the version used for the July 2026 produ
 | Agents and tasks | Terra/Luna names expose the actual model; concurrency and no-recursion guards limit cooldown storms; Sol reconciles task state | Argument-contract tests |
 | Context and compaction | 400k accounting, 280k automatic compaction, and session cache suppress transient false zero values | Status-line regression tests |
 | Usage limits | Direct web response, cached outage behavior, low-quota alert, account selection, and app-server recovery | Fake-service regressions and live app-server query |
-| Model picker and banner | Stable friendly labels, duplicate removal, API billing label filtering, fullscreen TUI | JSON/state and byte-stream regressions |
+| Model picker and banner | Stable friendly labels, duplicate removal, API billing label filtering, secondary-footer cleanup, fullscreen TUI | JSON/state and byte-stream regressions |
 | Cursor and mouse | Native terminal cursor plus application pointer OSC with cleanup | Pseudo-terminal regression on macOS |
 | macOS/Linux install | Bash installer, dependency selection, service startup, backups, and private permissions | Isolated install test and GitHub matrix |
 | Native Windows install | PowerShell tool mode, CMD shim, native installer, backups, and private config | PowerShell isolated suite and GitHub Windows runner |
-| Codex authentication | Standard Codex file-backed session is synchronized atomically; logout removes the bridge and login recovery stays in Codex | Logged-in, refreshed-session, missing-file, and logged-out regressions |
+| Codex authentication | Standard Codex file-backed session is synchronized atomically; live account changes invalidate account-scoped state; logout removes the bridge | Logged-in, refreshed-session, switched-account, missing-file, and logged-out regressions |
 | Claude Code updates | Installer checks immediately; launcher checks daily without blocking and negotiates optional flags from current `--help` | Capability and update scheduling regressions |
 | Resume hints | Claude's generated resume footer is rewritten to the matching Claudex or direct-Chrome launcher | Byte-stream and concurrent-session regressions |
 
