@@ -1,6 +1,7 @@
 param(
-    [ValidateSet('sync', 'login', 'logout', 'status')]
-    [string] $Action = 'sync'
+    [ValidateSet('sync', 'watch', 'login', 'logout', 'status')]
+    [string] $Action = 'sync',
+    [int] $ParentProcessId = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,6 +12,8 @@ $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USER
 $codexAuthFile = if ($env:CLAUDEX_CODEX_SOURCE_AUTH_FILE) { $env:CLAUDEX_CODEX_SOURCE_AUTH_FILE } else { Join-Path $codexHome 'auth.json' }
 $bridgeAuthDir = if ($env:CLAUDEX_CODEX_AUTH_DIR) { $env:CLAUDEX_CODEX_AUTH_DIR } else { Join-Path $configDir 'codex-accounts' }
 $bridgeAuthFile = Join-Path $bridgeAuthDir 'codex-claudex-managed.json'
+$usageCacheDir = Join-Path $configDir 'usage-cache'
+$usageAccountFile = Join-Path $configDir 'codex-usage-account'
 $utf8 = New-Object Text.UTF8Encoding($false)
 
 function Write-Failure([string] $Message) {
@@ -19,6 +22,11 @@ function Write-Failure([string] $Message) {
 
 function Clear-BridgeSession {
     Remove-Item -LiteralPath $bridgeAuthFile -Force -ErrorAction SilentlyContinue
+}
+
+function Clear-AccountScopedState {
+    Remove-Item -LiteralPath $usageAccountFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $usageCacheDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 function Test-CodexLogin {
@@ -62,16 +70,21 @@ function Sync-Session {
     }
 
     [IO.Directory]::CreateDirectory($bridgeAuthDir) | Out-Null
+    $previousAccount = ''
     $shouldWrite = $true
     if (Test-Path -LiteralPath $bridgeAuthFile -PathType Leaf) {
         try {
             $existing = Get-Content -LiteralPath $bridgeAuthFile -Raw | ConvertFrom-Json
+            $previousAccount = [string] $existing.account_id
             $existingRefresh = [string] $existing.last_refresh
             $sourceRefresh = [string] $source.last_refresh
             $existingDisabled = $null -ne $existing.PSObject.Properties['disabled'] -and [bool] $existing.disabled
             $existingExpired = $null -ne $existing.PSObject.Properties['expired'] -and [bool] $existing.expired
             if ($existing.type -eq 'codex' -and $existing.access_token -and
                 $existing.account_id -eq $tokens.account_id -and
+                $existing.access_token -eq $tokens.access_token -and
+                $existing.refresh_token -eq $tokens.refresh_token -and
+                ([string] $existing.id_token) -eq ([string] $tokens.id_token) -and
                 -not $existingDisabled -and -not $existingExpired -and
                 [string]::CompareOrdinal($existingRefresh, $sourceRefresh) -ge 0) {
                 $shouldWrite = $false
@@ -92,11 +105,51 @@ function Sync-Session {
         $temporary = Join-Path $bridgeAuthDir ('.codex-session-' + [guid]::NewGuid().ToString('N') + '.tmp')
         [IO.File]::WriteAllText($temporary, (($candidate | ConvertTo-Json -Compress) + "`n"), $utf8)
         Move-Item -LiteralPath $temporary -Destination $bridgeAuthFile -Force
+        if ($previousAccount -and $previousAccount -ne [string] $tokens.account_id) {
+            Clear-AccountScopedState
+        }
+    }
+    return 0
+}
+
+function Get-AuthFingerprint {
+    if (-not (Test-Path -LiteralPath $codexAuthFile -PathType Leaf)) { return 'missing' }
+    try { return (Get-FileHash -LiteralPath $codexAuthFile -Algorithm SHA256).Hash }
+    catch { return 'unreadable' }
+}
+
+function Watch-Session {
+    if ($ParentProcessId -le 1) { Write-Failure 'watch requires a valid parent process ID.'; return 2 }
+    $interval = 2
+    if ($env:CLAUDEX_AUTH_WATCH_SECONDS) {
+        if (-not [int]::TryParse($env:CLAUDEX_AUTH_WATCH_SECONDS, [ref] $interval) -or $interval -lt 1 -or $interval -gt 60) {
+            Write-Failure 'CLAUDEX_AUTH_WATCH_SECONDS must be an integer from 1 to 60.'
+            return 2
+        }
+    }
+    $fingerprint = Get-AuthFingerprint
+    if ($env:CLAUDEX_AUTH_WATCH_READY_FILE) {
+        [IO.File]::WriteAllText($env:CLAUDEX_AUTH_WATCH_READY_FILE, "ready`n", $utf8)
+    }
+    while (Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue) {
+        Start-Sleep -Seconds $interval
+        $next = Get-AuthFingerprint
+        if ($next -eq $fingerprint) { continue }
+        try {
+            $result = Sync-Session
+            if ($result -eq 0 -or $next -eq 'missing') { $fingerprint = $next }
+        } catch {
+            if ($next -eq 'missing') { $fingerprint = $next }
+        }
     }
     return 0
 }
 
 switch ($Action) {
+    'watch' {
+        $result = Watch-Session
+        exit $result
+    }
     'login' {
         $codex = Get-Command codex -ErrorAction SilentlyContinue
         if (-not $codex) { Write-Failure 'Codex CLI was not found. Install Codex and retry.'; exit 10 }

@@ -52,10 +52,12 @@ echo {"data":[{"id":"gpt-5.6-sol"},{"id":"gpt-5.6-terra"},{"id":"gpt-5.6-luna"}]
                 $sessionConfig = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
                 $projectDirectory = Join-Path (Join-Path $sessionConfig 'projects') $projectKey
                 [IO.Directory]::CreateDirectory($projectDirectory) | Out-Null
+                $rootRecord = @{ sessionId = '123e4567-e89b-12d3-a456-426614174000'; cwd = (Get-Location).Path; isSidechain = $false } | ConvertTo-Json -Compress
+                [IO.File]::WriteAllText((Join-Path $projectDirectory '123e4567-e89b-12d3-a456-426614174000.jsonl'), "$rootRecord`n", $utf8)
                 if ($env:FAKE_FOREIGN_RESUME -eq '1') {
-                    [IO.File]::WriteAllText((Join-Path $projectDirectory '223e4567-e89b-12d3-a456-426614174001.jsonl'), "{}`n", $utf8)
-                    [IO.File]::WriteAllText((Join-Path $projectDirectory '323e4567-e89b-12d3-a456-426614174002.jsonl'), "{}`n", $utf8)
-                } else { [IO.File]::WriteAllText((Join-Path $projectDirectory '123e4567-e89b-12d3-a456-426614174000.jsonl'), "{}`n", $utf8) }
+                    $foreignRecord = @{ sessionId = '223e4567-e89b-12d3-a456-426614174001'; cwd = 'C:\foreign'; isSidechain = $false } | ConvertTo-Json -Compress
+                    [IO.File]::WriteAllText((Join-Path $projectDirectory '223e4567-e89b-12d3-a456-426614174001.jsonl'), "$foreignRecord`n", $utf8)
+                }
                 Write-Output 'Resume this session with:'
                 Write-Output 'claude --resume 123e4567-e89b-12d3-a456-426614174000'
                 $global:LASTEXITCODE = 0
@@ -246,7 +248,9 @@ exit 1
     Remove-Item -LiteralPath $resumeCapture -Force
     $env:FAKE_FOREIGN_RESUME = '1'
     & (Join-Path $root 'claudex.ps1') | Out-Null
-    Assert-True (-not (Test-Path -LiteralPath $resumeCapture)) 'ambiguous concurrent resume is not rewritten'
+    $concurrentResumeFooter = [IO.File]::ReadAllText($resumeCapture)
+    Assert-True ($concurrentResumeFooter.Contains('claudex --resume 123e4567-e89b-12d3-a456-426614174000')) 'root resume survives concurrent foreign session'
+    Assert-True (-not $concurrentResumeFooter.Contains('223e4567-e89b-12d3-a456-426614174001')) 'foreign session is not selected for resume'
     Remove-Item Env:FAKE_CLAUDE_RESUME
     Remove-Item Env:FAKE_FOREIGN_RESUME
     Remove-Item Env:CLAUDEX_TEST_TTY_OUTPUT
@@ -282,6 +286,45 @@ exit 1
     Assert-True ($doctor.Contains('gpt-5.6-terra: advertised')) 'doctor models'
 
     $bridgeAuthFile = Join-Path $testAuthDir 'codex-claudex-managed.json'
+    [IO.Directory]::CreateDirectory((Join-Path $testConfig 'usage-cache')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $testConfig 'usage-cache\limits.json'), "old`n", $utf8)
+    [IO.File]::WriteAllText((Join-Path $testConfig 'codex-usage-account'), "codex-test.json`n", $utf8)
+    $env:CLAUDEX_AUTH_WATCH_SECONDS = '1'
+    $authWatchReady = Join-Path $temporary 'auth-watch-ready'
+    $env:CLAUDEX_AUTH_WATCH_READY_FILE = $authWatchReady
+    $shellPath = (Get-Process -Id $PID).Path
+    $quotedSessionHelper = '"' + (Join-Path $root 'codex-session.ps1') + '"'
+    $watchArguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $quotedSessionHelper,
+        'watch', '-ParentProcessId', [string] $PID)
+    $watchParameters = @{ FilePath = $shellPath; ArgumentList = $watchArguments; PassThru = $true }
+    if ($isWindowsPlatform) { $watchParameters.WindowStyle = 'Hidden' }
+    $accountWatcher = Start-Process @watchParameters
+    try {
+        foreach ($attempt in 1..50) {
+            if (Test-Path -LiteralPath $authWatchReady -PathType Leaf) { break }
+            Start-Sleep -Milliseconds 20
+        }
+        Assert-True (Test-Path -LiteralPath $authWatchReady -PathType Leaf) 'account watcher initialized'
+        [IO.File]::WriteAllText((Join-Path $testCodexDir 'auth.json'), '{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","last_refresh":"2026-07-15T02:00:00Z","tokens":{"access_token":"codex-switched-access","refresh_token":"codex-switched-refresh","id_token":"codex-switched-id","account_id":"account-switched"}}', $utf8)
+        foreach ($attempt in 1..50) {
+            Start-Sleep -Milliseconds 50
+            try {
+                $switchedBridge = Get-Content -LiteralPath $bridgeAuthFile -Raw | ConvertFrom-Json
+                if ($switchedBridge.account_id -eq 'account-switched') { break }
+            } catch { }
+        }
+        $switchedBridge = Get-Content -LiteralPath $bridgeAuthFile -Raw | ConvertFrom-Json
+        Assert-True ($switchedBridge.account_id -eq 'account-switched' -and $switchedBridge.access_token -eq 'codex-switched-access') 'live Codex account switch synchronized'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $testConfig 'codex-usage-account'))) 'account switch resets explicit usage selection'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $testConfig 'usage-cache\limits.json'))) 'account switch invalidates usage cache'
+    } finally {
+        Stop-Process -Id $accountWatcher.Id -Force -ErrorAction SilentlyContinue
+        Remove-Item Env:CLAUDEX_AUTH_WATCH_SECONDS -ErrorAction SilentlyContinue
+        Remove-Item Env:CLAUDEX_AUTH_WATCH_READY_FILE -ErrorAction SilentlyContinue
+    }
+    [IO.File]::WriteAllText((Join-Path $testCodexDir 'auth.json'), '{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","last_refresh":"2026-07-15T03:00:00Z","tokens":{"access_token":"codex-source-access","refresh_token":"codex-source-refresh","id_token":"codex-source-id","account_id":"account-test"}}', $utf8)
+    & (Join-Path $root 'codex-session.ps1') sync
+
     [IO.File]::WriteAllText($bridgeAuthFile, '{"type":"codex","access_token":"disabled-access","refresh_token":"disabled-refresh","account_id":"account-test","last_refresh":"2099-01-01T00:00:00Z","disabled":true,"expired":true}', $utf8)
     & (Join-Path $root 'codex-session.ps1') status | Out-Null
     $repairedBridge = Get-Content -LiteralPath $bridgeAuthFile -Raw | ConvertFrom-Json
@@ -383,6 +426,15 @@ exit 1
     $filteredFrame = $billingFrame | node --require (Join-Path $root 'preload.cjs') -e 'process.stdin.pipe(process.stdout)'
     Assert-True (($filteredFrame | Out-String).Contains('GPT-5.6 Sol with high effort')) 'banner retained'
     Assert-True (-not ($filteredFrame | Out-String).Contains('API Usage Billing')) 'billing label removed'
+    $modelFooter = '2% until auto-compact - /model opus[1m'
+    $filteredModelFooter = $modelFooter | node --require (Join-Path $root 'preload.cjs') -e 'process.stdin.pipe(process.stdout)'
+    Assert-True (($filteredModelFooter | Out-String).Contains('/model GPT-5.6 Sol')) 'footer model uses friendly name'
+    Assert-True (-not ($filteredModelFooter | Out-String).Contains('opus[1m')) 'footer model SGR fragment removed'
+    $rateLimitError = 'API Error: Request rejected (429) - All credentials for model gpt-5.6-sol are cooling down'
+    $filteredRateLimit = $rateLimitError.Replace(' - ', " $([char]0x00B7) ") | node --require (Join-Path $root 'preload.cjs') -e 'process.stdin.pipe(process.stdout)'
+    Assert-True (($filteredRateLimit | Out-String).Contains('Your Codex rate limit for GPT-5.6 Sol is exhausted')) '429 explains exhausted Codex rate limit'
+    Assert-True (($filteredRateLimit | Out-String).Contains('/usage-limit')) '429 points to usage limit details'
+    Assert-True (-not ($filteredRateLimit | Out-String).Contains('credentials')) '429 hides internal credential-pool wording'
     $resumeFrame = 'Resume this session with: claude --resume 123e4567-e89b-12d3-a456-426614174000'
     $filteredResume = $resumeFrame | node --require (Join-Path $root 'preload.cjs') -e 'process.stdin.pipe(process.stdout)'
     Assert-True (($filteredResume | Out-String).Contains('claudex --resume 123e4567-e89b-12d3-a456-426614174000')) 'resume command rewritten'
@@ -401,9 +453,9 @@ exit 1
     Assert-True (($filteredSolplan | Out-String).Contains('GPT-5.6 Solplan')) 'Solplan picker label'
     Assert-True (($filteredSolplan | Out-String).Contains('GPT-5.6 Sol in plan mode, GPT-5.6 Terra otherwise')) 'Solplan picker description'
     $env:CLAUDEX_TEST_TTY_INPUT = '1'
-    $inputAlias = & node -e 'const p=require(process.argv[1]);process.stdout.write(p.rewriteSolplanInput(process.argv[2]+String.fromCharCode(13)))' (Join-Path $root 'preload.cjs') '/model solplan'
+    $inputAlias = & node -e 'const p=require(process.argv[1]);process.stdout.write(Buffer.from(p.rewriteSolplanInput(process.argv[2]+String.fromCharCode(13))).toString(process.argv[3]))' (Join-Path $root 'preload.cjs') '/model solplan' hex
     Remove-Item Env:CLAUDEX_TEST_TTY_INPUT
-    Assert-True (($inputAlias | Out-String).Contains('/model opusplan')) 'Solplan slash-command alias'
+    Assert-True (($inputAlias | Out-String).Contains('2f6d6f64656c206f707573706c616e0d')) 'Solplan slash-command alias'
     $packageVersion = (& node (Join-Path $root 'bin\claudex-package.mjs') --package-version | Out-String).Trim()
     $packageManifest = Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
     Assert-True ($packageVersion -eq $packageManifest.version) 'package-manager wrapper version'

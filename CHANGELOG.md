@@ -15,6 +15,17 @@ uses [Semantic Versioning](https://semver.org/) for tagged releases.
 - Versioned `.tar.gz` and Windows `.zip` release artifacts with SHA-256 sums.
 - Release-asset automation and package-content validation in CI.
 
+### Fixed
+
+- Friendly model names in Claude Code's secondary footer without leaked SGR
+  fragments such as `[1m`.
+- Clear Codex rate-limit guidance instead of internal credential-pool cooldown
+  messages when model access is exhausted.
+- Reliable `claudex --resume` shutdown guidance even when agent or concurrent
+  session logs are updated at the same time.
+- Live Codex Desktop and CLI account-change detection, atomic bridge refresh,
+  and automatic invalidation of account-scoped usage state.
+
 ## [1.0.0] - 2026-07-15
 
 ### Added

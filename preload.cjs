@@ -35,13 +35,53 @@ const resumeCommand = new RegExp(
   'g',
 );
 
+const modelFooterLabels = [
+  ['/model opusplan', '/model GPT-5.6 Solplan'],
+  ['/model opus', '/model GPT-5.6 Sol'],
+  ['/model gpt-5.6-sol', '/model GPT-5.6 Sol'],
+  ['/model gpt-5.6-terra', '/model GPT-5.6 Terra'],
+  ['/model gpt-5.6-luna', '/model GPT-5.6 Luna'],
+];
+
+const rateLimitMessages = [
+  ['gpt-5.6-sol', 'GPT-5.6 Sol'],
+  ['gpt-5.6-terra', 'GPT-5.6 Terra'],
+  ['gpt-5.6-luna', 'GPT-5.6 Luna'],
+].flatMap(([model, label]) => {
+  const replacement = `Your Codex rate limit for ${label} is exhausted. Run /usage-limit to check when it resets, or sign in to another Codex account.`;
+  return [
+    [`API Error: Request rejected (429) · All credentials for model ${model} are cooling down`, replacement],
+    [`429 All credentials for model ${model} are cooling down`, replacement],
+    [`All credentials for model ${model} are cooling down`, replacement],
+  ];
+});
+
+function replaceModelFooterLabels(text) {
+  let filtered = text;
+  for (const [source, replacement] of modelFooterLabels) {
+    filtered = replaceTerminalPhrase(filtered, source, replacement);
+  }
+
+  // Claude Code occasionally emits a Select Graphic Rendition token without
+  // its ESC byte after the internal footer model name. Remove that orphan only
+  // when it immediately follows a model label managed by Claudex.
+  for (const [, label] of modelFooterLabels) {
+    filtered = filtered.replace(
+      new RegExp(`(${terminalPhrasePattern(label)})(?:\\x1b)?\\[[0-9;]*m`, 'g'),
+      '$1',
+    );
+  }
+  return filtered;
+}
+
 function filterClaudexOutput(text) {
-  let filtered = withoutBillingLabel(text).replace(resumeCommand, 'claudex$1');
+  let filtered = replaceModelFooterLabels(withoutBillingLabel(text).replace(resumeCommand, 'claudex$1'));
   for (const [phrase, replacement] of [
     ['Opus Plan Mode', 'GPT-5.6 Solplan'],
     ['Opus Plan', 'GPT-5.6 Solplan'],
     ['Opus in plan mode, else Sonnet', 'GPT-5.6 Solplan'],
     ['Use Opus in plan mode, Sonnet otherwise', 'Use GPT-5.6 Sol in plan mode, GPT-5.6 Terra otherwise'],
+    ...rateLimitMessages,
   ]) {
     filtered = replaceTerminalPhrase(filtered, phrase, replacement);
   }
@@ -57,6 +97,8 @@ const streamedPhrases = [
   'claude --resume',
   'claude -resume',
   'claude -r',
+  ...modelFooterLabels.map(([source]) => source),
+  ...rateLimitMessages.map(([source]) => source),
 ];
 
 function trailingManagedPrefixStart(text) {
@@ -80,6 +122,15 @@ function trailingManagedPrefixStart(text) {
     index += 1;
   }
   const rendered = visible.join('');
+  let modelFooterStart = -1;
+  for (const [source] of modelFooterLabels) {
+    const malformedSgr = new RegExp(`${source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\[[0-9;]*$`).exec(rendered);
+    const suffixLength = malformedSgr ? malformedSgr[0].length : (rendered.endsWith(source) ? source.length : 0);
+    if (suffixLength > 0) {
+      const start = rawStarts[rendered.length - suffixLength];
+      modelFooterStart = modelFooterStart < 0 ? start : Math.min(modelFooterStart, start);
+    }
+  }
   let longest = 0;
   for (const phrase of streamedPhrases) {
     const maximum = Math.min(rendered.length, phrase.length - 1);
@@ -92,9 +143,9 @@ function trailingManagedPrefixStart(text) {
     }
   }
   const phraseStart = longest > 0 ? rawStarts[rendered.length - longest] : -1;
-  if (phraseStart < 0) return incompleteAnsiStart;
-  if (incompleteAnsiStart < 0) return phraseStart;
-  return Math.min(phraseStart, incompleteAnsiStart);
+  const pendingStarts = [phraseStart, incompleteAnsiStart, modelFooterStart]
+    .filter((start) => start >= 0);
+  return pendingStarts.length > 0 ? Math.min(...pendingStarts) : -1;
 }
 
 // Claude Code's plan/execution switching is implemented by its built-in

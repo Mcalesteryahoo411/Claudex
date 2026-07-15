@@ -4,6 +4,7 @@ set -euo pipefail
 readonly root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+trap 'status=$?; printf "test.zsh: command failed at line %s (exit %s)\n" "$LINENO" "$status" >&2; exit "$status"' ERR
 
 mkdir -p "$tmp/home/.config/claudex" "$tmp/home/.cli-proxy-api" "$tmp/home/.codex" "$tmp/bin"
 printf '%s\n' 'CLAUDEX_PROXY_TOKEN=test-token' "CLAUDEX_CODEX_AUTH_DIR=$tmp/home/.cli-proxy-api" > "$tmp/home/.config/claudex/env"
@@ -53,10 +54,10 @@ if [[ "${FAKE_CLAUDE_RESUME:-0}" == 1 ]]; then
   project_key=$(printf '%s' "$PWD" | sed 's/[^A-Za-z0-9]/-/g')
   project_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$project_key"
   mkdir -p "$project_dir"
-  printf '%s\n' '{}' > "$project_dir/123e4567-e89b-12d3-a456-426614174000.jsonl"
+  printf '{"sessionId":"123e4567-e89b-12d3-a456-426614174000","cwd":"%s","isSidechain":false}\n' "$PWD" > "$project_dir/123e4567-e89b-12d3-a456-426614174000.jsonl"
   if [[ "${FAKE_FOREIGN_RESUME:-0}" == 1 ]]; then
     sleep 0.1
-    printf '%s\n' '{}' > "$project_dir/223e4567-e89b-12d3-a456-426614174000.jsonl"
+    printf '%s\n' '{"sessionId":"223e4567-e89b-12d3-a456-426614174000","cwd":"/foreign/project","isSidechain":false}' > "$project_dir/223e4567-e89b-12d3-a456-426614174000.jsonl"
   fi
   printf '%s\n' 'Resume this session with:'
   printf '%s\n' 'claude --resume 123e4567-e89b-12d3-a456-426614174000'
@@ -117,13 +118,13 @@ node --check "$root/bin/claudex-package.mjs"
 node "$root/scripts/check-package.mjs"
 input_alias_output=$(CLAUDEX_TEST_TTY_INPUT=1 node -e '
   const preload = require(process.argv[1]);
-  process.stdout.write(preload.rewriteSolplanInput("/model solplan\r"));
+  process.stdout.write(Buffer.from(preload.rewriteSolplanInput("/model solplan\r")).toString("hex"));
 ' "$root/preload.cjs")
-[[ "$input_alias_output" == $'/model opusplan\r' ]]
+[[ "$input_alias_output" == 2f6d6f64656c206f707573706c616e0d ]]
 input_listener_output=$(printf '/model solplan\r' | CLAUDEX_TEST_TTY_INPUT=1 node --require "$root/preload.cjs" -e '
-  process.stdin.once("data", (chunk) => process.stdout.write(chunk));
+  process.stdin.once("data", (chunk) => process.stdout.write(Buffer.from(chunk).toString("hex")));
 ')
-[[ "$input_listener_output" == $'/model opusplan\r' ]]
+[[ "$input_listener_output" == 2f6d6f64656c206f707573706c616e0d ]]
 jq -e '
   .model == "opus"
   and .permissions.defaultMode == "auto"
@@ -445,6 +446,18 @@ for (const [source, expected] of [
   ['Opus Plan', 'GPT-5.6 Solplan'],
   ['· API Usage Billing', ''],
   ['claude --resume abc', 'claudex --resume abc'],
+  ['/model opus', '/model GPT-5.6 Sol'],
+  ['/model opus[1m', '/model GPT-5.6 Sol'],
+  ['/model opusplan[1m', '/model GPT-5.6 Solplan'],
+  ['/model gpt-5.6-terra[22m', '/model GPT-5.6 Terra'],
+  [
+    'API Error: Request rejected (429) · All credentials for model gpt-5.6-sol are cooling down',
+    'Your Codex rate limit for GPT-5.6 Sol is exhausted. Run /usage-limit to check when it resets, or sign in to another Codex account.',
+  ],
+  [
+    '429 All credentials for model gpt-5.6-terra are cooling down',
+    'Your Codex rate limit for GPT-5.6 Terra is exhausted. Run /usage-limit to check when it resets, or sign in to another Codex account.',
+  ],
 ]) {
   for (let split = 1; split < source.length; split += 1) {
     const code = `const s=${JSON.stringify(source)},n=${split};process.stdout.write(s.slice(0,n));process.stdout.write(s.slice(n));`;
@@ -456,6 +469,12 @@ for (const [source, expected] of [
 const ansiCode = 'process.stdout.write("Opus\\x1b[");process.stdout.write("5G Plan Mode")';
 const ansi = spawnSync(process.execPath, ['--require', preload, '-e', ansiCode], { encoding: 'utf8' });
 assert.equal(ansi.stdout.replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, ''), 'GPT-5.6 Solplan');
+const footerCode = 'process.stdout.write("2% until auto-compact · /model op");process.stdout.write("us[1m")';
+const footer = spawnSync(process.execPath, ['--require', preload, '-e', footerCode], { encoding: 'utf8' });
+assert.equal(footer.stdout, '2% until auto-compact · /model GPT-5.6 Sol');
+const rateLimitCode = 'process.stderr.write("API Error: Request rejected (429) · All credentials for model gpt-5.6-");process.stderr.write("sol are cooling down")';
+const rateLimit = spawnSync(process.execPath, ['--require', preload, '-e', rateLimitCode], { encoding: 'utf8' });
+assert.equal(rateLimit.stderr, 'Your Codex rate limit for GPT-5.6 Sol is exhausted. Run /usage-limit to check when it resets, or sign in to another Codex account.');
 NODE
 
 solplan_input_regression=$(CLAUDEX_TEST_TTY_INPUT=1 node - "$root/preload.cjs" <<'NODE'
@@ -528,6 +547,42 @@ jq -e --arg version "$(node -p "require('$root/package.json').version")" \
 
 auth_status=$(run_wrapper --auth-status)
 [[ "$auth_status" == *'Codex authentication: ready (shared ChatGPT session)'* ]]
+
+# A Codex Desktop/CLI account change is picked up while Claudex is still open.
+mkdir -p "$tmp/home/.config/claudex/usage-cache/refresh.lock"
+printf '%s\n' old > "$tmp/home/.config/claudex/usage-cache/limits.json"
+printf '%s\n' codex-test.json > "$tmp/home/.config/claudex/codex-usage-account"
+sleep 10 & auth_watch_parent=$!
+auth_watch_ready="$tmp/auth-watch-ready"
+HOME="$tmp/home" PATH="$tmp/bin:$PATH" CLAUDEX_CODEX_AUTH_DIR="$tmp/home/.cli-proxy-api" \
+  CLAUDEX_AUTH_WATCH_SECONDS=1 CLAUDEX_AUTH_WATCH_READY_FILE="$auth_watch_ready" \
+  "$tmp/home/.config/claudex/codex-session" watch "$auth_watch_parent" &
+auth_watcher=$!
+for _ in {1..50}; do [[ -s "$auth_watch_ready" ]] && break; sleep 0.02; done
+[[ -s "$auth_watch_ready" ]]
+cat > "$tmp/home/.codex/auth.json" <<'EOF'
+{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","last_refresh":"2026-07-15T02:00:00Z","tokens":{"access_token":"codex-switched-access","refresh_token":"codex-switched-refresh","id_token":"codex-switched-id","account_id":"account-switched"}}
+EOF
+for _ in {1..50}; do
+  if jq -e '.account_id == "account-switched" and .access_token == "codex-switched-access"' \
+      "$tmp/home/.cli-proxy-api/codex-claudex-managed.json" >/dev/null 2>&1; then break; fi
+  sleep 0.05
+done
+jq -e '.account_id == "account-switched" and .access_token == "codex-switched-access"' \
+  "$tmp/home/.cli-proxy-api/codex-claudex-managed.json" >/dev/null
+[[ ! -e "$tmp/home/.config/claudex/codex-usage-account" ]]
+[[ ! -e "$tmp/home/.config/claudex/usage-cache/limits.json" ]]
+kill "$auth_watch_parent" 2>/dev/null || true
+wait "$auth_watch_parent" 2>/dev/null || true
+wait "$auth_watcher"
+
+# Restore the fixture account for the remaining lifecycle checks.
+cat > "$tmp/home/.codex/auth.json" <<'EOF'
+{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","last_refresh":"2026-07-15T03:00:00Z","tokens":{"access_token":"codex-source-access","refresh_token":"codex-source-refresh","id_token":"codex-source-id","account_id":"account-test"}}
+EOF
+HOME="$tmp/home" PATH="$tmp/bin:$PATH" CLAUDEX_CODEX_AUTH_DIR="$tmp/home/.cli-proxy-api" \
+  "$tmp/home/.config/claudex/codex-session" sync
+
 if HOME="$tmp/home" PATH="$tmp/bin:$PATH" CLAUDEX_CURL_BIN="$tmp/bin/curl" CLAUDEX_SKIP_AUTO_UPDATE=1 FAKE_CODEX_LOGGED_OUT=1 \
   "$root/claudex" --sol test-prompt >"$tmp/logged-out.stdout" 2>"$tmp/logged-out.stderr"; then
   printf '%s\n' 'expected logged-out Codex session to fail' >&2
@@ -564,7 +619,8 @@ if run_wrapper --account disabled@example.com >/dev/null 2>&1; then
 fi
 
 foreign_resume_output=$(FAKE_CLAUDE_RESUME=1 FAKE_FOREIGN_RESUME=1 CLAUDEX_TEST_TTY_OUTPUT=1 run_wrapper)
-[[ "$foreign_resume_output" != *$'\033[2A\033[JResume this session with:'* ]]
+[[ "$foreign_resume_output" == *'claudex --resume 123e4567-e89b-12d3-a456-426614174000'* ]]
+[[ "$foreign_resume_output" != *'claudex --resume 223e4567-e89b-12d3-a456-426614174000'* ]]
 
 direct_resume_output=$(FAKE_CLAUDE_RESUME=1 CLAUDEX_TEST_TTY_OUTPUT=1 run_wrapper --claude-chrome)
 [[ "$direct_resume_output" == *'claudex --claude-chrome --resume 123e4567-e89b-12d3-a456-426614174000'* ]]

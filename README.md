@@ -58,7 +58,8 @@ For release downloads, system requirements, updating, and removal, see the [inst
 
 ## What Claudex adds
 
-- Automatic authentication through the existing Codex desktop or CLI session, with clear login and logout recovery.
+- Automatic authentication through the existing Codex desktop or CLI session,
+  including live account-switch detection and clear login/logout recovery.
 - Friendly model choices for GPT-5.6 Sol, Terra, Luna, and Solplan.
 - Solplan planning with Sol and implementation with Terra.
 - Auto, max-effort, and Ultracode modes with explicit and separate behavior.
