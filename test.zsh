@@ -155,7 +155,9 @@ jq -e '
   .model == "opus"
   and .permissions.defaultMode == "auto"
   and (.autoMode.environment | any(startswith("User-designated task boundary:")))
+  and (.autoMode.environment | any(startswith("Explicitly approved development transfer:")))
   and (.autoMode.allow | any(startswith("Explicit Action Approval:")))
+  and (.autoMode.allow | any(contains("approve that")))
   and (.autoMode.allow | any(startswith("Requested Agent Configuration:")))
   and .autoCompactEnabled == true
   and .autoCompactWindow == 280000
@@ -223,6 +225,7 @@ jq -e '
   and (.autoMode.allow | any(startswith("Explicit Action Approval:")))
   and (.autoMode.environment | index("Default environment rule") != null)
   and (.autoMode.environment | any(startswith("User-designated task boundary:")))
+  and (.autoMode.environment | any(startswith("Explicitly approved development transfer:")))
 ' "$tmp/home/.config/claudex/settings.json" >/dev/null
 
 proxy_ready_file="$tmp/proxy-ready"
@@ -235,6 +238,7 @@ proxy_recovery_output=$(HOME="$tmp/home" PATH="$tmp/bin:$PATH" CLAUDEX_CURL_BIN=
   FAKE_PROXY_RECOVERY=1 "$root/claudex" recovery-test)
 [[ "$proxy_recovery_output" == *'PROXY_RECOVERED=1'* ]]
 [[ "$(wc -l < "$proxy_start_log" | tr -d ' ')" == 1 ]]
+[[ ! -e "$tmp/home/.config/claudex/run/proxy-start.lock" ]]
 
 auto_output=$(run_wrapper --auto --luna test-prompt)
 [[ "$auto_output" == *'--permission-mode auto'* ]]

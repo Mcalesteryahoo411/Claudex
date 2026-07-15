@@ -40,6 +40,7 @@ if not errorlevel 1 (
   echo {"user_id":"private-user","account_id":"private-account","email":"private@example.com","plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":82,"limit_window_seconds":604800,"reset_after_seconds":565127,"reset_at":1784666240},"secondary_window":null},"code_review_rate_limit":null,"additional_rate_limits":[{"limit_name":"GPT-5.3-Codex-Spark","metered_feature":"codex_bengalfox","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":0,"limit_window_seconds":604800,"reset_after_seconds":604800,"reset_at":1784705933},"secondary_window":null}}],"credits":{"has_credits":false,"unlimited":false,"overage_limit_reached":false,"balance":"0"},"spend_control":{"reached":false,"individual_limit":null},"rate_limit_reached_type":null,"rate_limit_reset_credits":{"available_count":1}}
   exit /b 0
 )
+if not "%FAKE_PROXY_READY_FILE%"=="" if not exist "%FAKE_PROXY_READY_FILE%" exit /b 7
 echo {"data":[{"id":"gpt-5.6-sol"},{"id":"gpt-5.6-terra"},{"id":"gpt-5.6-luna"}]}
 '@, $utf8)
         function global:claude {
@@ -87,6 +88,16 @@ echo {"data":[{"id":"gpt-5.6-sol"},{"id":"gpt-5.6-terra"},{"id":"gpt-5.6-luna"}]
         }
         [IO.File]::WriteAllText((Join-Path $fakeBin 'cliproxyapi.cmd'), @'
 @echo off
+if "%1"=="-version" (
+  echo CLIProxyAPI test
+  echo extra version detail
+  exit /b 1
+)
+if not "%FAKE_PROXY_READY_FILE%"=="" (
+  type nul > "%FAKE_PROXY_READY_FILE%"
+  if not "%FAKE_PROXY_START_LOG%"=="" echo started>>"%FAKE_PROXY_START_LOG%"
+  exit /b 0
+)
 echo CLIProxyAPI test
 echo extra version detail
 exit /b 1
@@ -180,7 +191,9 @@ exit 1
 
     $sourceSettings = Get-Content -LiteralPath (Join-Path $root 'settings.json') -Raw | ConvertFrom-Json
     Assert-True (@($sourceSettings.autoMode.environment | Where-Object { $_.StartsWith('User-designated task boundary:') }).Count -eq 1) 'auto-mode task boundary'
+    Assert-True (@($sourceSettings.autoMode.environment | Where-Object { $_.StartsWith('Explicitly approved development transfer:') }).Count -eq 1) 'auto-mode approved development transfer'
     Assert-True (@($sourceSettings.autoMode.allow | Where-Object { $_.StartsWith('Explicit Action Approval:') }).Count -eq 1) 'auto-mode explicit approval'
+    Assert-True (@($sourceSettings.autoMode.allow | Where-Object { $_.Contains('approve that') }).Count -eq 1) 'auto-mode approval by reference'
     Assert-True (@($sourceSettings.autoMode.allow | Where-Object { $_.StartsWith('Requested Agent Configuration:') }).Count -eq 1) 'auto-mode requested configuration'
 
     $output = (& (Join-Path $root 'claudex.ps1') --terra test-prompt | Out-String)
@@ -217,6 +230,41 @@ exit 1
     Assert-True (@($composedSettings.autoMode.allow | Where-Object { $_ -eq 'Default allow rule' }).Count -eq 1) 'upstream auto-mode allow rule preserved'
     Assert-True (@($composedSettings.autoMode.allow | Where-Object { $_.StartsWith('Explicit Action Approval:') }).Count -eq 1) 'Claudex auto-mode allow rule composed'
     Assert-True (@($composedSettings.autoMode.environment | Where-Object { $_ -eq 'Default environment rule' }).Count -eq 1) 'upstream auto-mode environment preserved'
+    Assert-True (@($composedSettings.autoMode.environment | Where-Object { $_.StartsWith('Explicitly approved development transfer:') }).Count -eq 1) 'approved development transfer composed'
+
+    if ($isWindowsPlatform) {
+        $proxyReady = Join-Path $temporary 'windows-proxy-ready'
+        $proxyStartLog = Join-Path $temporary 'windows-proxy-start.log'
+        $env:FAKE_PROXY_READY_FILE = $proxyReady
+        $env:FAKE_PROXY_START_LOG = $proxyStartLog
+        $env:CLAUDEX_TEST_PROXY_REACHABLE_FILE = $proxyReady
+        $stateHashBefore = (Get-FileHash -LiteralPath (Join-Path $testConfig '.claude.json') -Algorithm SHA256).Hash
+        $shellPath = (Get-Process -Id $PID).Path
+        $dummyParent = Start-Process -FilePath $shellPath -ArgumentList @('-NoLogo', '-NoProfile', '-Command', 'Start-Sleep -Seconds 5') -PassThru
+        $quotedLauncher = '"' + (Join-Path $root 'claudex.ps1') + '"'
+        $watchArguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $quotedLauncher,
+            '--claudex-internal-proxy-watch', [string] $dummyParent.Id)
+        $watcher = Start-Process -FilePath $shellPath -ArgumentList $watchArguments -PassThru -WindowStyle Hidden
+        try {
+            foreach ($attempt in 1..60) {
+                if (Test-Path -LiteralPath $proxyReady -PathType Leaf) { break }
+                Start-Sleep -Milliseconds 100
+            }
+            Assert-True (Test-Path -LiteralPath $proxyReady -PathType Leaf) 'Windows proxy watcher recovered a refused connection'
+            Start-Sleep -Milliseconds 300
+            Assert-True (-not $watcher.HasExited) 'Windows proxy watcher survives after recovery'
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $testConfig 'run\proxy-start.lock'))) 'Windows proxy recovery lock released'
+            $stateHashAfter = (Get-FileHash -LiteralPath (Join-Path $testConfig '.claude.json') -Algorithm SHA256).Hash
+            Assert-True ($stateHashAfter -eq $stateHashBefore) 'internal proxy watcher does not mutate model state'
+            Assert-True (@(Get-Content -LiteralPath $proxyStartLog).Count -eq 1) 'Windows proxy watcher starts one recovery process'
+        } finally {
+            Stop-Process -Id $dummyParent.Id -Force -ErrorAction SilentlyContinue
+            if (-not $watcher.WaitForExit(5000)) { Stop-Process -Id $watcher.Id -Force -ErrorAction SilentlyContinue }
+            Remove-Item Env:FAKE_PROXY_READY_FILE -ErrorAction SilentlyContinue
+            Remove-Item Env:FAKE_PROXY_START_LOG -ErrorAction SilentlyContinue
+            Remove-Item Env:CLAUDEX_TEST_PROXY_REACHABLE_FILE -ErrorAction SilentlyContinue
+        }
+    }
 
     $env:BUN_OPTIONS = ''
     $directChrome = (& (Join-Path $root 'claudex.ps1') --claude-chrome test-prompt | Out-String)

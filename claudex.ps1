@@ -148,8 +148,6 @@ function Update-ModelCache {
     Move-Item -LiteralPath $tempFile -Destination $stateFile -Force
 }
 
-Update-ModelCache
-
 function Fetch-Models {
     $output = "Authorization: Bearer $proxyToken" | & $curlCommand --silent --show-error --fail --max-time 5 `
         --header '@-' "$proxyUrl/v1/models" 2>$null
@@ -165,6 +163,9 @@ function Test-ProxyReady {
 }
 
 function Test-ProxyReachable {
+    if ($env:CLAUDEX_TEST_PROXY_REACHABLE_FILE) {
+        return (Test-Path -LiteralPath $env:CLAUDEX_TEST_PROXY_REACHABLE_FILE -PathType Leaf)
+    }
     $client = $null
     try {
         $uri = [Uri] $proxyUrl
@@ -190,38 +191,53 @@ function Find-ProxyExecutable {
 
 function Ensure-Proxy {
     if (-not (Test-Path -LiteralPath $codexSessionHelper -PathType Leaf)) {
-        Fail "authentication helper is missing: $codexSessionHelper; reinstall Claudex."
+        throw "authentication helper is missing: $codexSessionHelper; reinstall Claudex."
     }
     & $codexSessionHelper sync
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if ($LASTEXITCODE -ne 0) { throw "authentication synchronization failed with exit code $LASTEXITCODE." }
     if (Test-ProxyReady) { return }
     $runDir = Join-Path $configDir 'run'
     $lockDir = Join-Path $runDir 'proxy-start.lock'
+    $ownerFile = Join-Path $lockDir 'owner-pid'
     [IO.Directory]::CreateDirectory($runDir) | Out-Null
     $lockAcquired = $false
     foreach ($attempt in 1..100) {
         try {
             New-Item -LiteralPath $lockDir -ItemType Directory -ErrorAction Stop | Out-Null
+            [IO.File]::WriteAllText($ownerFile, "$PID`n", $utf8)
             $lockAcquired = $true
             break
         } catch {
             if (Test-ProxyReady) { return }
             try {
-                $lockAge = [DateTime]::UtcNow - (Get-Item -LiteralPath $lockDir).LastWriteTimeUtc
-                if ($lockAge.TotalSeconds -ge 30) {
+                $lockOwner = 0
+                $ownerAlive = (Test-Path -LiteralPath $ownerFile -PathType Leaf) -and
+                    [int]::TryParse(([IO.File]::ReadAllText($ownerFile).Trim()), [ref] $lockOwner) -and
+                    $null -ne (Get-Process -Id $lockOwner -ErrorAction SilentlyContinue)
+                if ($lockOwner -gt 0 -and -not $ownerAlive) {
+                    Remove-Item -LiteralPath $ownerFile -Force -ErrorAction SilentlyContinue
                     Remove-Item -LiteralPath $lockDir -Force -ErrorAction SilentlyContinue
+                } elseif ($lockOwner -le 0 -and (Test-Path -LiteralPath $lockDir -PathType Container)) {
+                    # The creator writes owner-pid immediately after creating
+                    # the directory. Only recover a missing-owner lock after a
+                    # short grace period so another live starter is not evicted.
+                    $ownerlessAge = [DateTime]::UtcNow - (Get-Item -LiteralPath $lockDir).LastWriteTimeUtc
+                    if ($ownerlessAge.TotalSeconds -ge 2) {
+                        Remove-Item -LiteralPath $ownerFile -Force -ErrorAction SilentlyContinue
+                        Remove-Item -LiteralPath $lockDir -Force -ErrorAction SilentlyContinue
+                    }
                 }
             } catch { }
             Start-Sleep -Milliseconds 100
         }
     }
-    if (-not $lockAcquired) { Fail 'timed out waiting for another session to start the local proxy.' }
+    if (-not $lockAcquired) { throw 'timed out waiting for another session to start the local proxy.' }
 
     $becameReady = $false
     try {
         if (Test-ProxyReady) { $becameReady = $true; return }
         $proxyBinary = Find-ProxyExecutable
-        if (-not $proxyBinary) { Fail 'CLIProxyAPI is not reachable and no proxy executable was found.' }
+        if (-not $proxyBinary) { throw 'CLIProxyAPI is not reachable and no proxy executable was found.' }
         [Console]::Error.WriteLine('claudex: starting the local CLIProxyAPI service...')
         $proxyConfig = Env-OrDefault 'CLAUDEX_PROXY_CONFIG' (Join-Path $configDir 'cliproxyapi.yaml')
         $logDir = Join-Path $configDir 'logs'
@@ -244,9 +260,10 @@ function Ensure-Proxy {
             Start-Sleep -Milliseconds 100
         }
     } finally {
+        Remove-Item -LiteralPath $ownerFile -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $lockDir -Force -ErrorAction SilentlyContinue
     }
-    if (-not $becameReady) { Fail 'local proxy did not become healthy. Run: claudex --doctor' }
+    if (-not $becameReady) { throw 'local proxy did not become healthy. Run: claudex --doctor' }
 }
 
 function Start-AuthWatcher {
@@ -269,7 +286,9 @@ function Invoke-ProxyWatchLoop([int] $ParentProcessId) {
     while (Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue) {
         Start-Sleep -Seconds 1
         if (-not (Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue)) { break }
-        if (-not (Test-ProxyReachable)) { Ensure-Proxy }
+        if (-not (Test-ProxyReachable)) {
+            try { Ensure-Proxy } catch { }
+        }
     }
 }
 
@@ -296,6 +315,9 @@ if ($ClaudeArguments.Count -eq 2 -and $ClaudeArguments[0] -eq '--claudex-interna
     exit 0
 }
 
+# Internal watcher processes exit above before touching the user-facing state.
+Update-ModelCache
+
 function Load-ClaudeCapabilities {
     $claudeCommand = Get-Command claude -ErrorAction SilentlyContinue
     if (-not $claudeCommand) { Fail 'Claude Code was not found. Install Claude Code and retry.' }
@@ -320,11 +342,12 @@ function Update-AutoModeRules {
         if ($null -eq $settings.PSObject.Properties['autoMode']) {
             $settings | Add-Member -NotePropertyName autoMode -NotePropertyValue ([pscustomobject]@{})
         }
-        $approval = 'Explicit Action Approval: A user message that explicitly approves a specific action and target, including reissuing it after a denial, satisfies named-and-specific consent for matching SOFT BLOCK rules. Do not ask for duplicate confirmation and do not treat the prior denial as permanent. This does not override HARD BLOCK rules or authorize a broader action.'
+        $approval = 'Explicit Action Approval: A user message that explicitly approves a specific action and target, including reissuing it after a denial or unambiguously referring to the immediately preceding blocked action with language such as approve that, go ahead, or proceed, satisfies named-and-specific consent for matching SOFT BLOCK rules. Do not force the user to restate the command, ask for duplicate confirmation, or treat the prior denial as permanent. This does not override HARD BLOCK rules or authorize a broader action.'
         $requestedConfig = 'Requested Agent Configuration: Editing agent configuration is routine when the user explicitly asks for that specific configuration or permission change. Treat that edit as user-requested rather than Self-Modification; unrelated permission widening remains blocked.'
         $taskBoundary = 'User-designated task boundary: A repository, cloud project, host, bucket, service, or destination that the user explicitly identifies in their own message as owned or controlled infrastructure and as the intended target is trusted for the specifically requested operation and data flow only. Merely naming a target does not establish trust; do not infer trust for agent-selected destinations, unrelated resources, or broader scopes.'
+        $approvedTransfer = 'Explicitly approved development transfer: When the user explicitly approves an exact source transfer between a named repository and a named build, deployment, or cloud host, treat that named source and destination as inside the task trust boundary for that transfer. Approval may unambiguously refer to the immediately preceding blocked command without repeating it. This never covers a public destination, credentials or secrets, unrelated files, a broader source tree, or a different host.'
         $settings.autoMode | Add-Member -NotePropertyName allow -NotePropertyValue @(@($defaults.allow) + @($approval, $requestedConfig)) -Force
-        $settings.autoMode | Add-Member -NotePropertyName environment -NotePropertyValue @(@($defaults.environment) + @($taskBoundary)) -Force
+        $settings.autoMode | Add-Member -NotePropertyName environment -NotePropertyValue @(@($defaults.environment) + @($taskBoundary, $approvedTransfer)) -Force
         $serializedSettings = $settings | ConvertTo-Json -Depth 100
         if ($serializedSettings -eq (Get-Content -LiteralPath $settingsFile -Raw)) { return }
         $tempFile = Join-Path $configDir ('settings.json.tmp.' + [guid]::NewGuid().ToString('N'))
@@ -388,7 +411,7 @@ function Model-Name([string] $Id) {
 function Invoke-Doctor {
     Load-ClaudeCapabilities
     Update-AutoModeRules
-    Ensure-Proxy
+    try { Ensure-Proxy } catch { Fail $_.Exception.Message }
     $saved = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
     $savedModel = if ($null -ne $saved.PSObject.Properties['model'] -and $saved.model) { [string] $saved.model } else { 'gpt-5.6-sol' }
     $models = Fetch-Models
@@ -556,7 +579,7 @@ if ($useProxy -or ($forwardArguments.Count -gt 0 -and $forwardArguments[0] -eq '
 if ($forwardArguments.Count -eq 0 -or $forwardArguments[0] -notin @('update', 'upgrade')) { Start-ClaudeUpdateCheck }
 
 if ($useProxy) {
-    Ensure-Proxy
+    try { Ensure-Proxy } catch { Fail $_.Exception.Message }
     $authWatcher = Start-AuthWatcher
     $proxyWatcher = Start-ProxyWatcher
 

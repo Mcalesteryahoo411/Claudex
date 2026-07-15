@@ -293,24 +293,40 @@ ensure_proxy() {
 
   # Concurrent Claudex tabs can notice a stopped bridge at the same time.
   # Serialize startup so only one process can bind the loopback port.
-  local run_dir="$CLAUDE_CONFIG_DIR/run" lock_dir attempt lock_mtime=0 now
+  local run_dir="$CLAUDE_CONFIG_DIR/run" lock_dir owner_file attempt lock_owner=""
+  local lock_mtime=0 now=0
   local lock_acquired=0
   lock_dir="$run_dir/proxy-start.lock"
+  owner_file="$lock_dir/owner-pid"
   mkdir -p "$run_dir"
   for attempt in {1..100}; do
     if mkdir "$lock_dir" 2>/dev/null; then
+      if ! printf '%s\n' "$$" > "$owner_file"; then
+        rmdir "$lock_dir" 2>/dev/null || true
+        return 1
+      fi
       lock_acquired=1
       break
     fi
     if proxy_ready; then return 0; fi
-    if stat -f '%m' "$lock_dir" >/dev/null 2>&1; then
-      lock_mtime=$(stat -f '%m' "$lock_dir")
-    else
-      lock_mtime=$(stat -c '%Y' "$lock_dir" 2>/dev/null || printf 0)
-    fi
-    now=$(date +%s)
-    if [[ "$lock_mtime" =~ ^[0-9]+$ ]] && (( now - lock_mtime >= 30 )); then
+    lock_owner=""
+    if [[ -r "$owner_file" ]]; then read -r lock_owner < "$owner_file" || lock_owner=""; fi
+    if [[ "$lock_owner" =~ ^[0-9]+$ ]] && ! kill -0 "$lock_owner" 2>/dev/null; then
+      rm -f "$owner_file" 2>/dev/null || true
       rmdir "$lock_dir" 2>/dev/null || true
+    elif [[ ! "$lock_owner" =~ ^[0-9]+$ ]]; then
+      # The creator writes owner-pid immediately after mkdir. Give that write a
+      # short grace period, then recover a lock left by a crash in that gap.
+      if stat -f '%m' "$lock_dir" >/dev/null 2>&1; then
+        lock_mtime=$(stat -f '%m' "$lock_dir")
+      else
+        lock_mtime=$(stat -c '%Y' "$lock_dir" 2>/dev/null || printf 0)
+      fi
+      now=$(date +%s)
+      if [[ "$lock_mtime" =~ ^[0-9]+$ ]] && (( now - lock_mtime >= 2 )); then
+        rm -f "$owner_file" 2>/dev/null || true
+        rmdir "$lock_dir" 2>/dev/null || true
+      fi
     fi
     sleep 0.1
   done
@@ -320,7 +336,7 @@ ensure_proxy() {
   fi
 
   if (
-    trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+    trap 'rm -f "$owner_file" 2>/dev/null || true; rmdir "$lock_dir" 2>/dev/null || true' EXIT
     if proxy_ready; then exit 0; fi
 
     printf '%s\n' "claudex: starting the local CLIProxyAPI service..." >&2
@@ -437,12 +453,13 @@ ensure_auto_mode_rules() {
 
   tmp_file=$(mktemp "$claudex_config_dir/settings.json.tmp.XXXXXX")
   if jq --argjson defaults "$defaults_json" \
-      --arg approval 'Explicit Action Approval: A user message that explicitly approves a specific action and target, including reissuing it after a denial, satisfies named-and-specific consent for matching SOFT BLOCK rules. Do not ask for duplicate confirmation and do not treat the prior denial as permanent. This does not override HARD BLOCK rules or authorize a broader action.' \
+      --arg approval 'Explicit Action Approval: A user message that explicitly approves a specific action and target, including reissuing it after a denial or unambiguously referring to the immediately preceding blocked action with language such as approve that, go ahead, or proceed, satisfies named-and-specific consent for matching SOFT BLOCK rules. Do not force the user to restate the command, ask for duplicate confirmation, or treat the prior denial as permanent. This does not override HARD BLOCK rules or authorize a broader action.' \
       --arg requested_config 'Requested Agent Configuration: Editing agent configuration is routine when the user explicitly asks for that specific configuration or permission change. Treat that edit as user-requested rather than Self-Modification; unrelated permission widening remains blocked.' \
-      --arg task_boundary 'User-designated task boundary: A repository, cloud project, host, bucket, service, or destination that the user explicitly identifies in their own message as owned or controlled infrastructure and as the intended target is trusted for the specifically requested operation and data flow only. Merely naming a target does not establish trust; do not infer trust for agent-selected destinations, unrelated resources, or broader scopes.' '
+      --arg task_boundary 'User-designated task boundary: A repository, cloud project, host, bucket, service, or destination that the user explicitly identifies in their own message as owned or controlled infrastructure and as the intended target is trusted for the specifically requested operation and data flow only. Merely naming a target does not establish trust; do not infer trust for agent-selected destinations, unrelated resources, or broader scopes.' \
+      --arg approved_transfer 'Explicitly approved development transfer: When the user explicitly approves an exact source transfer between a named repository and a named build, deployment, or cloud host, treat that named source and destination as inside the task trust boundary for that transfer. Approval may unambiguously refer to the immediately preceding blocked command without repeating it. This never covers a public destination, credentials or secrets, unrelated files, a broader source tree, or a different host.' '
         .autoMode = (.autoMode // {})
         | .autoMode.allow = ($defaults.allow + [$approval, $requested_config])
-        | .autoMode.environment = ($defaults.environment + [$task_boundary])
+        | .autoMode.environment = ($defaults.environment + [$task_boundary, $approved_transfer])
       ' "$settings_file" > "$tmp_file"; then
     if cmp -s "$tmp_file" "$settings_file"; then
       rm -f "$tmp_file"
