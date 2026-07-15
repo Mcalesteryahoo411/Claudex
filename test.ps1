@@ -43,9 +43,20 @@ if not errorlevel 1 (
 echo {"data":[{"id":"gpt-5.6-sol"},{"id":"gpt-5.6-terra"},{"id":"gpt-5.6-luna"}]}
 '@, $utf8)
         function global:claude {
-            if ($args.Count -gt 0 -and $args[0] -eq '--version') { Write-Output '2.1.210 (test)'; return }
-            if ($args.Count -gt 0 -and $args[0] -eq '--help') { Write-Output '--model --agents --append-system-prompt --permission-mode --settings --effort'; return }
-            if ($args.Count -gt 0 -and $args[0] -eq 'update') { return }
+            $firstArgument = if ($args) { [string] $args[0] } else { '' }
+            if ($firstArgument -eq '--version') { Write-Output '2.1.210 (test)'; return }
+            if ($firstArgument -eq '--help') { Write-Output '--model --agents --append-system-prompt --permission-mode --settings --effort'; return }
+            if ($firstArgument -eq 'update') { return }
+            if ($env:FAKE_CLAUDE_RESUME -eq '1') {
+                $projectKey = [regex]::Replace((Get-Location).Path, '[^A-Za-z0-9]', '-')
+                $projectDirectory = Join-Path (Join-Path $env:CLAUDE_CONFIG_DIR 'projects') $projectKey
+                [IO.Directory]::CreateDirectory($projectDirectory) | Out-Null
+                [IO.File]::WriteAllText((Join-Path $projectDirectory '123e4567-e89b-12d3-a456-426614174000.jsonl'), "{}`n", $utf8)
+                Write-Output 'Resume this session with:'
+                Write-Output 'claude --resume 123e4567-e89b-12d3-a456-426614174000'
+                $global:LASTEXITCODE = 0
+                return
+            }
             Write-Output "AUTO=$env:CLAUDE_CODE_AUTO_MODE_MODEL"
             Write-Output "BG=$env:CLAUDE_CODE_BG_CLASSIFIER_MODEL"
             Write-Output "SUBAGENT=$env:CLAUDE_CODE_SUBAGENT_MODEL"
@@ -186,6 +197,18 @@ exit 1
     Assert-True ($solplan.Contains('--model opusplan')) 'Solplan built-in selector'
     Assert-True ($solplan.Contains('OPUS=gpt-5.6-sol')) 'Solplan planning model'
     Assert-True ($solplan.Contains('SUBAGENT=gpt-5.6-terra')) 'Solplan implementation family'
+
+    $env:FAKE_CLAUDE_RESUME = '1'
+    $env:CLAUDEX_TEST_TTY_OUTPUT = '1'
+    $resumeCapture = Join-Path $temporary 'resume-footer.txt'
+    $env:CLAUDEX_TEST_RESUME_CAPTURE_FILE = $resumeCapture
+    & (Join-Path $root 'claudex.ps1') | Out-Null
+    $resumeFooter = [IO.File]::ReadAllText($resumeCapture)
+    Remove-Item Env:FAKE_CLAUDE_RESUME
+    Remove-Item Env:CLAUDEX_TEST_TTY_OUTPUT
+    Remove-Item Env:CLAUDEX_TEST_RESUME_CAPTURE_FILE
+    Assert-True ($resumeFooter.Contains("$([char]27)[2A$([char]27)[JResume this session with:")) 'resume footer rows replaced'
+    Assert-True ($resumeFooter.Contains('claudex --resume 123e4567-e89b-12d3-a456-426614174000')) 'Claudex resume command'
 
     $bare = (& (Join-Path $root 'claudex.ps1') --bare --print test-prompt | Out-String)
     Assert-True (-not $bare.Contains('--agents')) 'bare mode custom agents suppressed'
