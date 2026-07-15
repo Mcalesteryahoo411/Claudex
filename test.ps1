@@ -196,6 +196,11 @@ exit 1
     Assert-True (@($sourceSettings.autoMode.allow | Where-Object { $_.Contains('approve that') }).Count -eq 1) 'auto-mode approval by reference'
     Assert-True (@($sourceSettings.autoMode.allow | Where-Object { $_.StartsWith('Requested Agent Configuration:') }).Count -eq 1) 'auto-mode requested configuration'
 
+    $seedSettings = Get-Content -LiteralPath (Join-Path $testConfig 'settings.json') -Raw | ConvertFrom-Json
+    $seedSettings.autoMode.allow = @($seedSettings.autoMode.allow) + @('User custom allow rule')
+    $seedSettings.autoMode.environment = @($seedSettings.autoMode.environment) + @('User custom environment rule')
+    [IO.File]::WriteAllText((Join-Path $testConfig 'settings.json'), ($seedSettings | ConvertTo-Json -Depth 100), $utf8)
+
     $output = (& (Join-Path $root 'claudex.ps1') --terra test-prompt | Out-String)
     Assert-True ($output.Contains('AUTO=gpt-5.6-terra')) 'auto classifier'
     Assert-True ($output.Contains('BG=gpt-5.6-luna')) 'background classifier'
@@ -228,8 +233,10 @@ exit 1
     Assert-True (-not $output.Contains('"model":"gpt-5.6-sol"')) 'leader model is not delegated'
     $composedSettings = Get-Content -LiteralPath (Join-Path $testConfig 'settings.json') -Raw | ConvertFrom-Json
     Assert-True (@($composedSettings.autoMode.allow | Where-Object { $_ -eq 'Default allow rule' }).Count -eq 1) 'upstream auto-mode allow rule preserved'
+    Assert-True (@($composedSettings.autoMode.allow | Where-Object { $_ -eq 'User custom allow rule' }).Count -eq 1) 'user auto-mode allow rule preserved'
     Assert-True (@($composedSettings.autoMode.allow | Where-Object { $_.StartsWith('Explicit Action Approval:') }).Count -eq 1) 'Claudex auto-mode allow rule composed'
     Assert-True (@($composedSettings.autoMode.environment | Where-Object { $_ -eq 'Default environment rule' }).Count -eq 1) 'upstream auto-mode environment preserved'
+    Assert-True (@($composedSettings.autoMode.environment | Where-Object { $_ -eq 'User custom environment rule' }).Count -eq 1) 'user auto-mode environment rule preserved'
     Assert-True (@($composedSettings.autoMode.environment | Where-Object { $_.StartsWith('Explicitly approved development transfer:') }).Count -eq 1) 'approved development transfer composed'
 
     if ($isWindowsPlatform) {

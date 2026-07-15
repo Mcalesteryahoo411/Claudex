@@ -173,6 +173,10 @@ jq -e '
   and (.env | not)
 ' "$root/settings.json" >/dev/null
 
+jq '.autoMode.allow += ["User custom allow rule"]
+  | .autoMode.environment += ["User custom environment rule"]' \
+  "$tmp/home/.config/claudex/settings.json" > "$tmp/custom-auto-mode-settings.json"
+mv "$tmp/custom-auto-mode-settings.json" "$tmp/home/.config/claudex/settings.json"
 default_output=$(run_wrapper --terra test-prompt)
 state_file="$tmp/home/.config/claudex/.claude.json"
 jq -e '
@@ -222,8 +226,10 @@ jq -e '[.additionalModelOptionsCache[] | select(.value == "gpt-5.6-sol")] as $so
 [[ "$default_output" != *'"model":"gpt-5.6-sol"'* ]]
 jq -e '
   (.autoMode.allow | index("Default allow rule") != null)
+  and ([.autoMode.allow[] | select(. == "User custom allow rule")] | length == 1)
   and (.autoMode.allow | any(startswith("Explicit Action Approval:")))
   and (.autoMode.environment | index("Default environment rule") != null)
+  and ([.autoMode.environment[] | select(. == "User custom environment rule")] | length == 1)
   and (.autoMode.environment | any(startswith("User-designated task boundary:")))
   and (.autoMode.environment | any(startswith("Explicitly approved development transfer:")))
 ' "$tmp/home/.config/claudex/settings.json" >/dev/null

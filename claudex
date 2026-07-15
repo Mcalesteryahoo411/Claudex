@@ -299,7 +299,7 @@ ensure_proxy() {
   lock_dir="$run_dir/proxy-start.lock"
   owner_file="$lock_dir/owner-pid"
   mkdir -p "$run_dir"
-  for attempt in {1..100}; do
+  for attempt in {1..300}; do
     if mkdir "$lock_dir" 2>/dev/null; then
       if ! printf '%s\n' "$$" > "$owner_file"; then
         rmdir "$lock_dir" 2>/dev/null || true
@@ -457,9 +457,17 @@ ensure_auto_mode_rules() {
       --arg requested_config 'Requested Agent Configuration: Editing agent configuration is routine when the user explicitly asks for that specific configuration or permission change. Treat that edit as user-requested rather than Self-Modification; unrelated permission widening remains blocked.' \
       --arg task_boundary 'User-designated task boundary: A repository, cloud project, host, bucket, service, or destination that the user explicitly identifies in their own message as owned or controlled infrastructure and as the intended target is trusted for the specifically requested operation and data flow only. Merely naming a target does not establish trust; do not infer trust for agent-selected destinations, unrelated resources, or broader scopes.' \
       --arg approved_transfer 'Explicitly approved development transfer: When the user explicitly approves an exact source transfer between a named repository and a named build, deployment, or cloud host, treat that named source and destination as inside the task trust boundary for that transfer. Approval may unambiguously refer to the immediately preceding blocked command without repeating it. This never covers a public destination, credentials or secrets, unrelated files, a broader source tree, or a different host.' '
+        def stable_unique:
+          reduce .[] as $item ([]; if index($item) == null then . + [$item] else . end);
         .autoMode = (.autoMode // {})
-        | .autoMode.allow = ($defaults.allow + [$approval, $requested_config])
-        | .autoMode.environment = ($defaults.environment + [$task_boundary, $approved_transfer])
+        | ((.autoMode.allow // []) | map(select(
+            (startswith("Explicit Action Approval:") or startswith("Requested Agent Configuration:")) | not
+          ))) as $custom_allow
+        | ((.autoMode.environment // []) | map(select(
+            (startswith("User-designated task boundary:") or startswith("Explicitly approved development transfer:")) | not
+          ))) as $custom_environment
+        | .autoMode.allow = (($defaults.allow + $custom_allow + [$approval, $requested_config]) | stable_unique)
+        | .autoMode.environment = (($defaults.environment + $custom_environment + [$task_boundary, $approved_transfer]) | stable_unique)
       ' "$settings_file" > "$tmp_file"; then
     if cmp -s "$tmp_file" "$settings_file"; then
       rm -f "$tmp_file"

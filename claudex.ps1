@@ -201,7 +201,7 @@ function Ensure-Proxy {
     $ownerFile = Join-Path $lockDir 'owner-pid'
     [IO.Directory]::CreateDirectory($runDir) | Out-Null
     $lockAcquired = $false
-    foreach ($attempt in 1..100) {
+    foreach ($attempt in 1..300) {
         try {
             New-Item -LiteralPath $lockDir -ItemType Directory -ErrorAction Stop | Out-Null
             [IO.File]::WriteAllText($ownerFile, "$PID`n", $utf8)
@@ -346,8 +346,22 @@ function Update-AutoModeRules {
         $requestedConfig = 'Requested Agent Configuration: Editing agent configuration is routine when the user explicitly asks for that specific configuration or permission change. Treat that edit as user-requested rather than Self-Modification; unrelated permission widening remains blocked.'
         $taskBoundary = 'User-designated task boundary: A repository, cloud project, host, bucket, service, or destination that the user explicitly identifies in their own message as owned or controlled infrastructure and as the intended target is trusted for the specifically requested operation and data flow only. Merely naming a target does not establish trust; do not infer trust for agent-selected destinations, unrelated resources, or broader scopes.'
         $approvedTransfer = 'Explicitly approved development transfer: When the user explicitly approves an exact source transfer between a named repository and a named build, deployment, or cloud host, treat that named source and destination as inside the task trust boundary for that transfer. Approval may unambiguously refer to the immediately preceding blocked command without repeating it. This never covers a public destination, credentials or secrets, unrelated files, a broader source tree, or a different host.'
-        $settings.autoMode | Add-Member -NotePropertyName allow -NotePropertyValue @(@($defaults.allow) + @($approval, $requestedConfig)) -Force
-        $settings.autoMode | Add-Member -NotePropertyName environment -NotePropertyValue @(@($defaults.environment) + @($taskBoundary, $approvedTransfer)) -Force
+        $existingAllow = if ($null -ne $settings.autoMode.PSObject.Properties['allow']) {
+            @($settings.autoMode.allow | Where-Object {
+                -not $_.StartsWith('Explicit Action Approval:') -and
+                -not $_.StartsWith('Requested Agent Configuration:')
+            })
+        } else { @() }
+        $existingEnvironment = if ($null -ne $settings.autoMode.PSObject.Properties['environment']) {
+            @($settings.autoMode.environment | Where-Object {
+                -not $_.StartsWith('User-designated task boundary:') -and
+                -not $_.StartsWith('Explicitly approved development transfer:')
+            })
+        } else { @() }
+        $composedAllow = @(@($defaults.allow) + $existingAllow + @($approval, $requestedConfig) | Select-Object -Unique)
+        $composedEnvironment = @(@($defaults.environment) + $existingEnvironment + @($taskBoundary, $approvedTransfer) | Select-Object -Unique)
+        $settings.autoMode | Add-Member -NotePropertyName allow -NotePropertyValue $composedAllow -Force
+        $settings.autoMode | Add-Member -NotePropertyName environment -NotePropertyValue $composedEnvironment -Force
         $serializedSettings = $settings | ConvertTo-Json -Depth 100
         if ($serializedSettings -eq (Get-Content -LiteralPath $settingsFile -Raw)) { return }
         $tempFile = Join-Path $configDir ('settings.json.tmp.' + [guid]::NewGuid().ToString('N'))
