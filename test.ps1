@@ -1335,30 +1335,34 @@ process.stdout.write(JSON.stringify({
         $usageHelper = Join-Path $testConfig 'usage-limit.ps1'
         $blockedCurlLog = Join-Path $temporary 'blocked-usage-url-curl.log'
         $usageUrlRejected = $false
+        $usageUrlRejection = ''
         $env:CLAUDEX_USAGE_SOURCE = 'auto'
         $env:CLAUDEX_USAGE_URL = 'http://127.0.0.1:8123/backend-api/wham/usage'
         $env:FAKE_CURL_CALL_LOG = $blockedCurlLog
         try {
             & $usageHelper -RefreshCache | Out-Null
         } catch {
-            $usageUrlRejected = $_.Exception.Message.Contains('CLAUDEX_USAGE_URL must remain https://chatgpt.com/backend-api/wham/usage')
+            $usageUrlRejection = ($_ | Out-String)
+            $usageUrlRejected = $usageUrlRejection.Contains('CLAUDEX_USAGE_URL must remain https://chatgpt.com/backend-api/wham/usage')
         } finally {
             Remove-Item Env:CLAUDEX_USAGE_URL -ErrorAction SilentlyContinue
             Remove-Item Env:FAKE_CURL_CALL_LOG -ErrorAction SilentlyContinue
         }
-        Assert-True $usageUrlRejected 'non-official production usage URL rejected'
+        Assert-True $usageUrlRejected "non-official production usage URL rejected; error=$usageUrlRejection"
         Assert-True (-not (Test-Path -LiteralPath $blockedCurlLog)) 'rejected usage URL never invokes curl'
 
         $env:CLAUDEX_USAGE_SOURCE = 'web'
         $env:CLAUDEX_INSECURE_TEST_ALLOW_USAGE_URL = '1'
         $env:CLAUDEX_USAGE_URL = 'https://example.com/backend-api/wham/usage'
         $nonLoopbackRejected = $false
+        $nonLoopbackRejection = ''
         try {
             & $usageHelper -RefreshCache | Out-Null
         } catch {
-            $nonLoopbackRejected = $_.Exception.Message.Contains('permits only loopback HTTP(S) usage endpoints')
+            $nonLoopbackRejection = ($_ | Out-String)
+            $nonLoopbackRejected = $nonLoopbackRejection.Contains('permits only loopback HTTP(S) usage endpoints')
         }
-        Assert-True $nonLoopbackRejected 'test usage URL remains loopback-only'
+        Assert-True $nonLoopbackRejected "test usage URL remains loopback-only; error=$nonLoopbackRejection"
 
         $loopbackUsageUrl = 'http://127.0.0.1:8123/backend-api/wham/usage'
         $loopbackCurlLog = Join-Path $temporary 'loopback-usage-url-curl.log'
