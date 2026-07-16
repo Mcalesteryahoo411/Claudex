@@ -1,0 +1,53 @@
+name: Verify website installers
+
+# Runs the public claudex.work source-install bootstraps end to end on fresh
+# runners, exactly as a new user would, and asserts the installed launcher
+# responds. Manual trigger: these hit the live site and the latest release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux install from claudex.work
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Run the public bootstrap
+        run: curl -fsSL --proto '=https' --tlsv1.2 https://claudex.work/install.sh | bash
+      - name: Installed launcher responds
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          command -v claudex
+          claudex --version
+
+  macos:
+    name: macOS install from claudex.work
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Run the public bootstrap
+        run: curl -fsSL --proto '=https' --tlsv1.2 https://claudex.work/install.sh | bash
+      - name: Installed launcher responds
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          command -v claudex
+          claudex --version
+
+  windows:
+    name: Windows install from claudex.work
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Run the public bootstrap
+        shell: powershell
+        run: irm https://claudex.work/install.ps1 | iex
+      - name: Installed launcher responds
+        shell: powershell
+        run: |
+          $launcher = Join-Path $env:USERPROFILE '.local\bin\claudex.cmd'
+          if (-not (Test-Path -LiteralPath $launcher)) { throw "launcher not found at $launcher" }
+          & $launcher --version
+          if ($LASTEXITCODE -ne 0) { throw "claudex --version exited with $LASTEXITCODE" }
