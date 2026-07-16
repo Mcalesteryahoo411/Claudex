@@ -1121,6 +1121,9 @@ function syncOnce(projectDir) {
       fingerprint, policyFingerprint, publishedAt: Date.now(), skills: records, pluginRelativeDirs, modelMappings, warnings: discovered.warnings,
     };
     fs.writeFileSync(path.join(stage, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    if (process.env.NODE_ENV === 'test' && process.env.CLAUDEX_TEST_FAIL_SKILL_PUBLICATION === '1') {
+      throw new Error('simulated skill snapshot publication failure');
+    }
     try { fs.renameSync(stage, generation); }
     catch (error) {
       const concurrent = validManifest(manifestPath);

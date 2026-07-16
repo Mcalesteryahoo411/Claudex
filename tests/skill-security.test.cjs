@@ -256,13 +256,11 @@ function testLastKnownGoodFallback() {
     'the latest-generation pointer must be replaced after every successful publication');
 
   write(asset, 'publication should fail\n');
-  const probeConfig = path.join(fixture.root, 'probe-config');
-  const probe = invoke({ ...fixture.environment, CLAUDEX_CONFIG_DIR: probeConfig }, fixture.project);
-  const blockedGenerationName = path.basename(probe.overlay);
-  assert.notStrictEqual(blockedGenerationName, path.basename(newest.overlay));
-  write(path.join(generations, blockedGenerationName), 'reserve the destination as a regular file\n');
-
-  const fallback = invoke(fixture.environment, fixture.project);
+  const fallback = invoke({
+    ...fixture.environment,
+    NODE_ENV: 'test',
+    CLAUDEX_TEST_FAIL_SKILL_PUBLICATION: '1',
+  }, fixture.project);
   assert.strictEqual(fallback.overlay, newest.overlay, 'publication failure must return the newest valid snapshot');
   assert(warningIncludes(fallback, 'Skill refresh failed; using the last known good snapshot'));
   const publishedAsset = path.join(fallback.overlay, '.claude', 'skills', 'fallback-tree', 'assets', 'value.txt');
