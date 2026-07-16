@@ -968,8 +968,35 @@ function validManifest(file) {
     ? manifest : null;
 }
 
+function latestPointerPath(generations, projectHash, policyFingerprint) {
+  return path.join(generations, `.latest-${projectHash}-${policyFingerprint}.json`);
+}
+
+function rememberLatestGeneration(generations, projectHash, policyFingerprint, generation) {
+  const pointer = latestPointerPath(generations, projectHash, policyFingerprint);
+  const temporary = `${pointer}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(temporary, `${JSON.stringify({ generation: path.basename(generation) })}\n`, { mode: 0o600, flag: 'wx' });
+    try { fs.renameSync(temporary, pointer); }
+    catch {
+      fs.copyFileSync(temporary, pointer);
+      fs.rmSync(temporary, { force: true });
+    }
+  } catch {
+    try { fs.rmSync(temporary, { force: true }); } catch { }
+  }
+}
+
 function latestGeneration(generations, projectHash, policyFingerprint) {
   if (!existsDirectory(generations)) return null;
+  const pointer = readJson(latestPointerPath(generations, projectHash, policyFingerprint), null);
+  if (pointer && typeof pointer.generation === 'string'
+      && pointer.generation === path.basename(pointer.generation)
+      && pointer.generation.startsWith(`${projectHash}-`)) {
+    const pointed = path.join(generations, pointer.generation);
+    const pointedManifest = validManifest(path.join(pointed, 'manifest.json'));
+    if (pointedManifest && pointedManifest.policyFingerprint === policyFingerprint) return pointed;
+  }
   let entries = [];
   try { entries = fs.readdirSync(generations, { withFileTypes: true }); } catch { return null; }
   const candidates = entries.filter((entry) => entry.isDirectory() && entry.name.startsWith(`${projectHash}-`))
@@ -1022,7 +1049,10 @@ function syncOnce(projectDir) {
   const generation = path.join(generations, `${projectHash}-${fingerprint}`);
   const manifestPath = path.join(generation, 'manifest.json');
   let manifest = validManifest(manifestPath);
-  if (manifest) return generationResult(generation, manifest);
+  if (manifest) {
+    rememberLatestGeneration(generations, projectHash, policyFingerprint, generation);
+    return generationResult(generation, manifest);
+  }
 
   fs.mkdirSync(generations, { recursive: true, mode: 0o700 });
   if (existsDirectory(generation) && !manifest) fs.rmSync(generation, { recursive: true, force: true });
@@ -1105,6 +1135,7 @@ function syncOnce(projectDir) {
     error.policyFingerprint = policyFingerprint;
     throw error;
   }
+  rememberLatestGeneration(generations, projectHash, policyFingerprint, generation);
   garbageCollect(generations, projectHash, generation);
   return generationResult(generation, manifest);
 }
