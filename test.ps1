@@ -497,12 +497,13 @@ process.stdout.write(JSON.stringify({
         Assert-True (-not (Test-Path -LiteralPath $remoteCurlLog -PathType Leaf)) 'remote proxy rejection occurs before the credential-bearing curl request'
 
         $unmanaged401StartLog = Join-Path $temporary 'unmanaged-401-proxy-start.log'
+        $unmanaged401ErrorLog = Join-Path $temporary 'unmanaged-401-proxy-error.log'
         $env:FAKE_PROXY_HTTP_STATUS = '401'
         $env:FAKE_PROXY_START_LOG = $unmanaged401StartLog
         $savedErrorPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
-            $unmanaged401Output = & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'claudex.ps1') --terra unmanaged-401-test 2>&1
+            $unmanaged401Output = & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'claudex.ps1') --terra unmanaged-401-test 2> $unmanaged401ErrorLog
             $unmanaged401Exit = $LASTEXITCODE
         } finally {
             $ErrorActionPreference = $savedErrorPreference
@@ -510,7 +511,8 @@ process.stdout.write(JSON.stringify({
             Remove-Item Env:FAKE_PROXY_START_LOG -ErrorAction SilentlyContinue
         }
         Assert-True ($unmanaged401Exit -ne 0) 'Windows launcher rejects an unverified loopback process after HTTP 401'
-        $unmanaged401Text = (($unmanaged401Output | Out-String) -replace '\s+', ' ')
+        $unmanaged401Stderr = if (Test-Path -LiteralPath $unmanaged401ErrorLog -PathType Leaf) { Get-Content -LiteralPath $unmanaged401ErrorLog -Raw } else { '' }
+        $unmanaged401Text = ((($unmanaged401Output | Out-String) + $unmanaged401Stderr) -replace '\s+', ' ')
         Assert-True ($unmanaged401Text.Contains('will not stop an unverified process')) 'unverified loopback 401 explains the managed-process safety boundary'
         Assert-True (-not (Test-Path -LiteralPath $unmanaged401StartLog -PathType Leaf)) 'unverified loopback 401 never starts a replacement proxy'
 
