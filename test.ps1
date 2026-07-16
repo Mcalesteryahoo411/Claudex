@@ -1,6 +1,5 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
-$PSDefaultParameterValues['Out-String:Width'] = 32767
 
 $root = $PSScriptRoot
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('claudex-tests-' + [guid]::NewGuid().ToString('N'))
@@ -83,6 +82,9 @@ public static class ClaudexTestCurl
 '@ -OutputAssembly $fakeCurl -OutputType ConsoleApplication
         function global:claude {
             $firstArgument = if ($args) { [string] $args[0] } else { '' }
+            if ($env:FAKE_CLAUDE_ARGUMENT_LOG) {
+                [IO.File]::WriteAllLines($env:FAKE_CLAUDE_ARGUMENT_LOG, [string[]] @($args))
+            }
             if ($firstArgument -eq '--version') { Write-Output '2.1.210 (test)'; return }
             if ($firstArgument -eq '--help') { Write-Output '--model --agents --append-system-prompt --permission-mode --settings --effort --add-dir --plugin-dir'; return }
             if ($firstArgument -eq 'auto-mode' -and $args.Count -gt 1 -and $args[1] -eq 'defaults') {
@@ -278,6 +280,9 @@ $arguments = [string[]] @($args)
 $arg1 = if ($arguments.Count -gt 0) { $arguments[0] } else { '' }
 $arg2 = if ($arguments.Count -gt 1) { $arguments[1] } else { '' }
 $arg3 = if ($arguments.Count -gt 2) { $arguments[2] } else { '' }
+if ($env:FAKE_CLAUDE_ARGUMENT_LOG) {
+    [IO.File]::WriteAllLines($env:FAKE_CLAUDE_ARGUMENT_LOG, $arguments)
+}
 if ($env:FAKE_CLAUDE_NATIVE_LOG) {
     [IO.File]::WriteAllLines($env:FAKE_CLAUDE_NATIVE_LOG, [string[]] @(
         "ARG1=$arg1", "ARG2=$arg2", "ARG3=$arg3",
@@ -827,10 +832,20 @@ process.stdout.write(JSON.stringify({ addDirs: [], pluginDirs: [], instructions:
     $arityModelOutput = (& (Join-Path $root 'claudex.ps1') --settings --model arity-model-value-test | Out-String)
     Assert-True ($arityModelOutput.Contains('--model gpt-5.6-sol') -and $arityModelOutput.Contains('--settings --model')) 'an option value resembling --model does not replace the managed primary model'
 
-    $forwardedModelOutput = (& (Join-Path $root 'claudex.ps1') --model gpt-5.6-luna explicit-model-test | Out-String)
-    $forwardedModelArgs = @($forwardedModelOutput -split "`r?`n" | Where-Object { $_.StartsWith('ARGS=') })[-1]
-    Assert-True ($forwardedModelArgs.Contains('--model gpt-5.6-luna')) "explicit native --model reaches Claude unchanged; output=$forwardedModelOutput; args=$forwardedModelArgs"
-    Assert-True (([regex]::Matches($forwardedModelArgs, '(?:^| )--model(?: |$)')).Count -eq 1) "explicit native --model suppresses default model injection; output=$forwardedModelOutput; args=$forwardedModelArgs"
+    $forwardedModelLog = Join-Path $temporary 'forwarded-model-arguments.log'
+    try {
+        $env:FAKE_CLAUDE_ARGUMENT_LOG = $forwardedModelLog
+        & (Join-Path $root 'claudex.ps1') --model gpt-5.6-luna explicit-model-test | Out-Null
+    } finally { Remove-Item Env:FAKE_CLAUDE_ARGUMENT_LOG -ErrorAction SilentlyContinue }
+    $forwardedModelArguments = [string[]] [IO.File]::ReadAllLines($forwardedModelLog)
+    $forwardedModelIndexes = @(
+        for ($argumentIndex = 0; $argumentIndex -lt $forwardedModelArguments.Count; $argumentIndex++) {
+            if ($forwardedModelArguments[$argumentIndex] -eq '--model') { $argumentIndex }
+        }
+    )
+    Assert-True ($forwardedModelIndexes.Count -eq 1) "explicit native --model suppresses default model injection; args=$($forwardedModelArguments -join '|')"
+    $forwardedModelIndex = $forwardedModelIndexes[0]
+    Assert-True ($forwardedModelIndex + 1 -lt $forwardedModelArguments.Count -and $forwardedModelArguments[$forwardedModelIndex + 1] -eq 'gpt-5.6-luna') "explicit native --model reaches Claude unchanged; args=$($forwardedModelArguments -join '|')"
     $env:FAKE_PROXY_MODELS_JSON = '{"data":[{"id":"gpt-5.6-terra"}]}'
     try {
         $fallbackModelOutput = (& (Join-Path $root 'claudex.ps1') --model gpt-5.6-sol --fallback-model=gpt-5.6-terra fallback-model-test | Out-String)
