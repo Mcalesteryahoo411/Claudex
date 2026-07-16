@@ -1,14 +1,15 @@
-[CmdletBinding(PositionalBinding = $false)]
-param(
-    [int] $ClaudexInternalProxyWatchParentProcessId = 0,
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]] $ClaudeArguments
-)
-
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
-if ($null -eq $ClaudeArguments) { $ClaudeArguments = [string[]] @() }
-else { $ClaudeArguments = [string[]] @($ClaudeArguments) }
+$ClaudexInternalProxyWatchParentProcessId = 0
+$ClaudeArguments = [string[]] @($args)
+if ($ClaudeArguments.Count -gt 0 -and $ClaudeArguments[0] -eq '-ClaudexInternalProxyWatchParentProcessId') {
+    $parsedProxyWatchParent = 0
+    if ($ClaudeArguments.Count -lt 2 -or -not [int]::TryParse($ClaudeArguments[1], [ref] $parsedProxyWatchParent)) {
+        throw 'Claudex internal proxy watcher requires a numeric parent process ID.'
+    }
+    $ClaudexInternalProxyWatchParentProcessId = $parsedProxyWatchParent
+    $ClaudeArguments = if ($ClaudeArguments.Count -gt 2) { [string[]] $ClaudeArguments[2..($ClaudeArguments.Count - 1)] } else { [string[]] @() }
+}
 $previousSessionMode = [Environment]::GetEnvironmentVariable('CLAUDEX_SESSION_MODE', 'Process')
 $previousEffortLevel = [Environment]::GetEnvironmentVariable('CLAUDE_CODE_EFFORT_LEVEL', 'Process')
 $previousModelMode = [Environment]::GetEnvironmentVariable('CLAUDEX_MODEL_MODE', 'Process')
