@@ -755,7 +755,7 @@ switch ($Action) {
     Assert-True ($installedProxyConfig.Contains('transient-error-cooldown-seconds: 1')) 'proxy transient cooldown stays bounded'
     Assert-True ($installedProxyConfig.Contains('bootstrap-retries: 2')) 'proxy retries pre-stream failures'
     $selfUpdateStatus = (& (Join-Path $root 'claudex.ps1') self-update --status | Out-String)
-    Assert-True ($selfUpdateStatus.Contains('Installed version: 1.4.1')) 'self-update status dispatch'
+    Assert-True ($selfUpdateStatus.Contains('Installed version: 1.4.2')) 'self-update status dispatch'
     Assert-True ($selfUpdateStatus.Contains('Install method: git')) 'self-update install provenance'
 
     & node (Join-Path $root 'scripts\check-docs.mjs')

@@ -431,7 +431,8 @@ function ConvertTo-NativeArgument([string] $Value) {
 }
 
 function Invoke-BoundedProcess([string] $Executable, [string[]] $Arguments, [int] $TimeoutSeconds, [switch] $CaptureOutput) {
-    $argumentLine = (($Arguments | ForEach-Object { ConvertTo-NativeArgument ([string]$_ }) -join ' ')
+    $nativeArguments = @($Arguments | ForEach-Object { ConvertTo-NativeArgument ([string] $_) })
+    $argumentLine = $nativeArguments -join ' '
     $fileName = $Executable
     if ([IO.Path]::GetExtension($Executable) -in @('.cmd', '.bat')) {
         $fileName = if ($env:ComSpec) { $env:ComSpec } else { 'cmd.exe' }

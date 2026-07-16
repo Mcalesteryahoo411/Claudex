@@ -731,7 +731,7 @@ installed_env=$(<"$install_home/.config/claudex/env")
 [[ "$(<"$install_home/.config/claudex/cliproxyapi.yaml")" == *'request-retry: 3'* ]]
 [[ "$(<"$install_home/.config/claudex/cliproxyapi.yaml")" == *'transient-error-cooldown-seconds: 1'* ]]
 [[ "$(<"$install_home/.config/claudex/cliproxyapi.yaml")" == *'bootstrap-retries: 2'* ]]
-jq -e '.schema == 1 and .version == "1.4.1" and .method == "git" and .repository == "BeamoINT/Claudex"' \
+jq -e '.schema == 1 and .version == "1.4.2" and .method == "git" and .repository == "BeamoINT/Claudex"' \
   "$install_home/.config/claudex/install.json" >/dev/null
 
 custom_proxy_config="$tmp/custom-claudex-proxy.yaml"
