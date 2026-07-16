@@ -973,13 +973,14 @@ function latestGeneration(generations, projectHash, policyFingerprint) {
   let entries = [];
   try { entries = fs.readdirSync(generations, { withFileTypes: true }); } catch { return null; }
   const candidates = entries.filter((entry) => entry.isDirectory() && entry.name.startsWith(`${projectHash}-`))
-    .map((entry) => path.join(generations, entry.name))
-    .filter((entry) => {
-      const manifest = validManifest(path.join(entry, 'manifest.json'));
-      return manifest && manifest.policyFingerprint === policyFingerprint;
+    .map((entry) => {
+      const directory = path.join(generations, entry.name);
+      const manifest = validManifest(path.join(directory, 'manifest.json'));
+      return { directory, manifest, publishedAt: Number(manifest && manifest.publishedAt) || fs.statSync(directory).mtimeMs };
     })
-    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-  return candidates[0] || null;
+    .filter((entry) => entry.manifest && entry.manifest.policyFingerprint === policyFingerprint)
+    .sort((a, b) => b.publishedAt - a.publishedAt || b.directory.localeCompare(a.directory));
+  return candidates[0] ? candidates[0].directory : null;
 }
 
 function garbageCollect(generations, projectHash, active) {
@@ -1089,7 +1090,7 @@ function syncOnce(projectDir) {
 
     manifest = {
       schema: BRIDGE_SCHEMA, format: BRIDGE_FORMAT, project: path.resolve(projectDir), repoRoot: discovered.repoRoot,
-      fingerprint, policyFingerprint, skills: records, pluginRelativeDirs, modelMappings, warnings: discovered.warnings,
+      fingerprint, policyFingerprint, publishedAt: Date.now(), skills: records, pluginRelativeDirs, modelMappings, warnings: discovered.warnings,
     };
     fs.writeFileSync(path.join(stage, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
     try { fs.renameSync(stage, generation); }
