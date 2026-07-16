@@ -41,6 +41,7 @@ sessions do not receive that preload or the GPT proxy environment.
 | Usage helper | `usage-limit` | `usage-limit.ps1` | Fetch, sanitize, cache, and display usage limits |
 | Status line | `statusline` | `statusline.ps1` | Render model, effort, stable context, and cached usage status |
 | Terminal preload | `preload.cjs` | shared | Translate Solplan input and replace only the interactive startup billing field without modifying Claude Code or machine output |
+| Skill bridge | `skill-bridge.cjs` | shared | Discover existing Claude and Codex skills, preserve project scope, adapt provider-specific policy/model metadata, and build an immutable private overlay |
 | Settings template | `settings.json` | shared | Provide isolated default Claude Code settings |
 
 ## Authentication lifecycle
@@ -85,6 +86,18 @@ again on a configurable interval without blocking startup, recovers stale lock
 directories, and avoids racing explicit update commands. At every launch,
 Claudex reads `claude --help` and injects optional switches only when supported.
 Unknown arguments are forwarded exactly.
+
+Before an ordinary GPT-backed launch, the shared skill bridge discovers native
+Claude personal skills, Codex personal and project skills, legacy locations,
+admin skills, and enabled plugin skills. It creates immutable, content-hashed
+snapshots under the private Claudex configuration and injects standalone skills
+with `--add-dir`. Validated plugin skills are rebuilt as inert generated
+plugins and injected with `--plugin-dir`; the original plugin's hooks, MCP
+servers, agents, and other executable components are not loaded. A separate
+generated hook resolves explicit Codex `$skill` references without making
+manual-only skills implicitly invocable. Original skill and plugin trees are
+read-only inputs. Direct Chrome, safe, bare, and maintenance flows do not
+receive the overlay.
 
 For the lifetime of each proxied session, a lightweight watcher checks the
 loopback listener without generating API traffic. If CLIProxyAPI exits, one

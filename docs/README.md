@@ -7,12 +7,14 @@ and maintainers.
 
 - [Installation](installation.md) — prerequisites, platform-specific setup,
   updates, and moving between machines.
-- [Package managers](package-managers.md) — Homebrew, npm, Scoop, and WinGet
+- [Package managers](package-managers.md) — Homebrew, Scoop, and WinGet
   distribution channels.
 - [Command reference](usage.md) — launch modes, authentication, usage limits,
   Claude Code passthrough, and examples.
 - [Configuration](configuration.md) — supported environment variables,
   defaults, validation, files, and advanced overrides.
+- [Skills](skills.md) — automatic compatibility for existing Claude Code and
+  Codex skills, plugins, legacy commands, and project scopes.
 - [Troubleshooting](troubleshooting.md) — common installation,
   authentication, model, usage, rendering, and Chrome problems.
 

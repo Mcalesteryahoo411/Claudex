@@ -17,6 +17,7 @@ $usageLimitTarget = Join-Path $configDir 'usage-limit.ps1'
 $codexSessionTarget = Join-Path $configDir 'codex-session.ps1'
 $usageSkillTarget = Join-Path $configDir 'skills\usage-limit\SKILL.md'
 $preloadTarget = Join-Path $configDir 'preload.cjs'
+$skillBridgeTarget = Join-Path $configDir 'skill-bridge.cjs'
 $selfUpdateTarget = Join-Path $configDir 'self-update.ps1'
 $installReceiptTarget = Join-Path $configDir 'install.json'
 $proxyConfigTarget = Join-Path $configDir 'cliproxyapi.yaml'
@@ -24,6 +25,7 @@ $launcherTarget = Join-Path $binDir 'claudex.ps1'
 $cmdTarget = Join-Path $binDir 'claudex.cmd'
 $proxyPortText = if ($env:CLAUDEX_PROXY_PORT) { $env:CLAUDEX_PROXY_PORT } else { '8318' }
 $skipDependencies = $env:CLAUDEX_SKIP_DEPENDENCY_INSTALL -eq '1'
+$allowNodeMigration = -not $skipDependencies -or $env:CLAUDEX_ALLOW_NODE_INSTALL -eq '1'
 $skipService = $env:CLAUDEX_SKIP_SERVICE_START -eq '1'
 $utf8 = New-Object Text.UTF8Encoding($false)
 $callerProxyUrlSet = Test-Path Env:CLAUDEX_PROXY_URL
@@ -40,18 +42,45 @@ function Fail([string] $Message) {
     exit 1
 }
 
+function Get-NodeMajorVersion {
+    $nodeCommand = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $nodeCommand) { return 0 }
+    try { $versionText = [string] ((& $nodeCommand.Source --version 2>$null | Select-Object -First 1)) }
+    catch { return 0 }
+    $major = 0
+    if ($versionText -match '^v?(\d+)(?:\.|$)' -and [int]::TryParse($Matches[1], [ref] $major)) { return $major }
+    return 0
+}
+
 function Install-NodeAndNpm {
-    [Console]::WriteLine('Installing Node.js and npm for the official Codex CLI package...')
+    $existingMajor = Get-NodeMajorVersion
+    if ($existingMajor -gt 0) {
+        [Console]::WriteLine("Upgrading Node.js $existingMajor to Node.js 18 or newer for Claudex skill compatibility...")
+    } else {
+        [Console]::WriteLine('Installing Node.js 18 or newer for Claudex skill compatibility and the official Codex CLI package...')
+    }
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     $choco = Get-Command choco -ErrorAction SilentlyContinue
     $scoop = Get-Command scoop -ErrorAction SilentlyContinue
     if ($winget) {
-        & $winget.Source install --id OpenJS.NodeJS.LTS --exact --accept-package-agreements --accept-source-agreements
+        if ($existingMajor -gt 0) {
+            & $winget.Source upgrade --id OpenJS.NodeJS.LTS --exact --accept-package-agreements --accept-source-agreements --disable-interactivity
+            $nodeInstallExitCode = $LASTEXITCODE
+            if ($nodeInstallExitCode -ne 0) {
+                & $winget.Source install --id OpenJS.NodeJS.LTS --exact --accept-package-agreements --accept-source-agreements --disable-interactivity
+            }
+        } else {
+            & $winget.Source install --id OpenJS.NodeJS.LTS --exact --accept-package-agreements --accept-source-agreements --disable-interactivity
+        }
     } elseif ($choco) {
-        & $choco.Source install nodejs-lts -y
+        & $choco.Source upgrade nodejs-lts -y
     } elseif ($scoop) {
-        & $scoop.Source install nodejs-lts
-    } else { Fail 'Node.js and npm are required to install Codex CLI; install Node.js LTS or enable WinGet, Chocolatey, or Scoop, then retry' }
+        if (Test-Path -LiteralPath (Join-Path $env:USERPROFILE 'scoop\apps\nodejs-lts') -PathType Container) {
+            & $scoop.Source update nodejs-lts
+        } else {
+            & $scoop.Source install nodejs-lts
+        }
+    } else { Fail 'Node.js 18 or newer is required; install the current Node.js LTS release or enable WinGet, Chocolatey, or Scoop, then retry' }
     if ($LASTEXITCODE -ne 0) { Fail "Node.js installation failed with exit code $LASTEXITCODE" }
     foreach ($candidate in @(
         (Join-Path $env:ProgramFiles 'nodejs'),
@@ -62,17 +91,22 @@ function Install-NodeAndNpm {
             $env:PATH = "$candidate$([IO.Path]::PathSeparator)$env:PATH"
         }
     }
+    $installedMajor = Get-NodeMajorVersion
+    if ($installedMajor -lt 18) {
+        $detected = if ($installedMajor -gt 0) { "Node.js $installedMajor remains active in PATH" } else { 'Node.js is still unavailable in PATH' }
+        Fail "$detected after the package-manager upgrade; activate Node.js 18 or newer, open a new terminal, and rerun the installer"
+    }
 }
 
 function Install-CodexCli {
-    if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command npm -ErrorAction SilentlyContinue)) { Install-NodeAndNpm }
+    if ((Get-NodeMajorVersion) -lt 18 -or -not (Get-Command npm -ErrorAction SilentlyContinue)) { Install-NodeAndNpm }
     # Prefer the native command shim. npm.ps1 reconstructs its arguments with
     # Invoke-Expression and can re-evaluate scope-qualified variables under
     # StrictMode instead of receiving their value.
     $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
     if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
-    if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not $npm) {
-        Fail 'Node.js or npm was installed but is not available in PATH; open a new terminal and rerun the installer'
+    if ((Get-NodeMajorVersion) -lt 18 -or -not $npm) {
+        Fail 'Node.js 18 or newer or npm was installed but is not available in PATH; open a new terminal and rerun the installer'
     }
     [Console]::WriteLine('Installing Codex CLI from the official @openai/codex npm package...')
     $installPrefix = Join-Path $env:USERPROFILE '.local\bin'
@@ -144,7 +178,7 @@ if (-not [int]::TryParse($proxyPortText, [ref] $proxyPort) -or $proxyPort -lt 1 
     Fail 'CLAUDEX_PROXY_PORT must be an integer from 1 to 65535'
 }
 
-foreach ($sourceFile in @('claudex.ps1', 'claudex.cmd', 'codex-session.ps1', 'statusline.ps1', 'usage-limit.ps1', 'preload.cjs', 'self-update.ps1', 'package.json', 'settings.json', 'skills\usage-limit\SKILL.md')) {
+foreach ($sourceFile in @('claudex.ps1', 'claudex.cmd', 'codex-session.ps1', 'statusline.ps1', 'usage-limit.ps1', 'preload.cjs', 'skill-bridge.cjs', 'self-update.ps1', 'package.json', 'settings.json', 'skills\usage-limit\SKILL.md', 'skills\usage-limit\SKILL.windows.md')) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $sourceFile) -PathType Leaf)) { Fail "missing repository file: $sourceFile" }
 }
 
@@ -214,6 +248,13 @@ if (-not $skipDependencies) {
         }
     }
     if ((Get-ProxyVersion $managedProxy) -notlike "*Version: $proxyVersion*") { Install-Proxy }
+}
+
+$nodeMajor = Get-NodeMajorVersion
+if ($nodeMajor -lt 18 -and $allowNodeMigration) { Install-NodeAndNpm; $nodeMajor = Get-NodeMajorVersion }
+if ($nodeMajor -lt 18) {
+    $detected = if ($nodeMajor -gt 0) { "found Node.js $nodeMajor" } else { 'Node.js was not found' }
+    Fail "Node.js 18 or newer is required for Claude and Codex skill compatibility ($detected); rerun the installer with dependency installation enabled"
 }
 
 $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
@@ -319,7 +360,7 @@ $managedLines = @(
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupDir = Join-Path $configDir "backups\install-$timestamp"
 $backedUp = $false
-foreach ($managedFile in @($launcherTarget, $cmdTarget, $settingsTarget, $statuslineTarget, $usageLimitTarget, $codexSessionTarget, $preloadTarget, $selfUpdateTarget, $usageSkillTarget, $installReceiptTarget)) {
+foreach ($managedFile in @($launcherTarget, $cmdTarget, $settingsTarget, $statuslineTarget, $usageLimitTarget, $codexSessionTarget, $preloadTarget, $skillBridgeTarget, $selfUpdateTarget, $usageSkillTarget, $installReceiptTarget)) {
     if (Test-Path -LiteralPath $managedFile) {
         [IO.Directory]::CreateDirectory($backupDir) | Out-Null
         Copy-Item -LiteralPath $managedFile -Destination (Join-Path $backupDir (Split-Path $managedFile -Leaf)) -Force
@@ -334,9 +375,10 @@ Copy-Item -LiteralPath (Join-Path $root 'statusline.ps1') -Destination $statusli
 Copy-Item -LiteralPath (Join-Path $root 'usage-limit.ps1') -Destination $usageLimitTarget -Force
 Copy-Item -LiteralPath (Join-Path $root 'codex-session.ps1') -Destination $codexSessionTarget -Force
 Copy-Item -LiteralPath (Join-Path $root 'preload.cjs') -Destination $preloadTarget -Force
+Copy-Item -LiteralPath (Join-Path $root 'skill-bridge.cjs') -Destination $skillBridgeTarget -Force
 Copy-Item -LiteralPath (Join-Path $root 'self-update.ps1') -Destination $selfUpdateTarget -Force
 [IO.Directory]::CreateDirectory((Split-Path $usageSkillTarget -Parent)) | Out-Null
-Copy-Item -LiteralPath (Join-Path $root 'skills\usage-limit\SKILL.md') -Destination $usageSkillTarget -Force
+Copy-Item -LiteralPath (Join-Path $root 'skills\usage-limit\SKILL.windows.md') -Destination $usageSkillTarget -Force
 
 $settings = Get-Content -LiteralPath (Join-Path $root 'settings.json') -Raw | ConvertFrom-Json
 $settings.statusLine.command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $statuslineTarget + '"'

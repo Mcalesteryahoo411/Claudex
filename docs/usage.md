@@ -113,6 +113,19 @@ detected while Claudex is running; the local bridge follows the new account and
 clears account-scoped usage state automatically. Disabled and expired
 credentials are never selected.
 
+## Skills
+
+| Command or reference | Behavior |
+| --- | --- |
+| `claudex skills` | List every bridged alias and its source for the current project |
+| `/skill-name` | Invoke a Claude-native or bridged Codex skill inside Claudex |
+| `$skill-name` | Codex-style explicit reference to the matching bridged skill |
+
+Claudex automatically discovers existing personal, project, legacy, admin, and
+enabled-plugin skills from both ecosystems without changing the source files.
+See [Claude Code and Codex skills](skills.md) for the complete location,
+collision, policy-translation, and opt-out contract.
+
 ## Claude in Chrome
 
 `claudex --claude-chrome` intentionally bypasses the GPT compatibility path,

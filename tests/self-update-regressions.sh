@@ -117,12 +117,31 @@ fi
 grep -F 'unsafe paths or file types' "$temporary/unsafe.stderr" >/dev/null
 [[ ! -e "$temporary/payload" ]]
 
+# A checksum-valid archive without the now-required bridge is rejected before
+# any installer or managed file can run.
+rm -rf "$temporary/archive-source"
+mkdir -p "$temporary/archive-source/claudex-1.3.2"
+printf '%s\n' '{"version":"1.3.2"}' > "$temporary/archive-source/claudex-1.3.2/package.json"
+for script in install.sh claudex self-update; do
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$temporary/archive-source/claudex-1.3.2/$script"
+  chmod +x "$temporary/archive-source/claudex-1.3.2/$script"
+done
+tar -czf "$fixtures/release.tar.gz" -C "$temporary/archive-source" claudex-1.3.2
+if command -v sha256sum >/dev/null 2>&1; then digest=$(sha256sum "$fixtures/release.tar.gz" | awk '{print $1}')
+else digest=$(shasum -a 256 "$fixtures/release.tar.gz" | awk '{print $1}'); fi
+printf '%s  %s\n' "$digest" 'claudex-1.3.2.tar.gz' > "$fixtures/SHA256SUMS"
+if "$root/self-update" --apply >"$temporary/missing-bridge.stdout" 2>"$temporary/missing-bridge.stderr"; then
+  printf '%s\n' 'expected release without a skill bridge to be rejected' >&2
+  exit 1
+fi
+grep -F 'release archive is missing its skill bridge' "$temporary/missing-bridge.stderr" >/dev/null
+
 # A failed archive installer restores every prior managed file and removes any
 # managed file that did not exist before the attempt.
 rm -rf "$temporary/archive-source"
 mkdir -p "$temporary/archive-source/claudex-1.3.2" "$temporary/install-bin"
 printf '%s\n' old-statusline > "$config/statusline"
-rm -f "$config/self-update"
+rm -f "$config/self-update" "$config/skill-bridge.cjs"
 cat > "$temporary/archive-source/claudex-1.3.2/package.json" <<'EOF'
 {"version":"1.3.2"}
 EOF
@@ -131,6 +150,7 @@ cat > "$temporary/archive-source/claudex-1.3.2/install.sh" <<'EOF'
 set -euo pipefail
 printf '%s\n' partial-statusline > "$CLAUDEX_CONFIG_DIR/statusline"
 printf '%s\n' partial-updater > "$CLAUDEX_CONFIG_DIR/self-update"
+printf '%s\n' partial-skill-bridge > "$CLAUDEX_CONFIG_DIR/skill-bridge.cjs"
 exit 23
 EOF
 cat > "$temporary/archive-source/claudex-1.3.2/claudex" <<'EOF'
@@ -140,6 +160,9 @@ EOF
 cat > "$temporary/archive-source/claudex-1.3.2/self-update" <<'EOF'
 #!/usr/bin/env bash
 exit 0
+EOF
+cat > "$temporary/archive-source/claudex-1.3.2/skill-bridge.cjs" <<'EOF'
+'use strict';
 EOF
 chmod +x "$temporary/archive-source/claudex-1.3.2/install.sh" \
   "$temporary/archive-source/claudex-1.3.2/claudex" \
@@ -155,5 +178,6 @@ fi
 grep -F 'restored the previous managed files' "$temporary/rollback.stderr" >/dev/null
 [[ "$(<"$config/statusline")" == old-statusline ]]
 [[ ! -e "$config/self-update" ]]
+[[ ! -e "$config/skill-bridge.cjs" ]]
 
 printf '%s\n' 'self-update regressions passed'

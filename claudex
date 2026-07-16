@@ -5,6 +5,8 @@ readonly claudex_config_dir="${CLAUDEX_CONFIG_DIR:-$HOME/.config/claudex}"
 readonly config_file="$claudex_config_dir/env"
 readonly curl_bin="${CLAUDEX_CURL_BIN:-curl}"
 
+if [[ -x "$claudex_config_dir/node/bin/node" ]]; then export PATH="$claudex_config_dir/node/bin:$PATH"; fi
+
 early_runtime_bypass=0
 for early_argument in "$@"; do
   case "$early_argument" in
@@ -14,7 +16,7 @@ for early_argument in "$@"; do
   esac
 done
 case "${1:-}" in
-  --help|-h|--version|-v|agents|auth|doctor|gateway|install|mcp|plugin|plugins|project|self-update|setup-token|ultrareview|update|upgrade)
+  --help|-h|--version|-v|agents|auth|doctor|gateway|install|mcp|plugin|plugins|project|self-update|setup-token|skills|ultrareview|update|upgrade)
     early_runtime_bypass=1
     ;;
 esac
@@ -28,6 +30,7 @@ if [[ -r "$config_file" ]]; then source "$config_file"; fi
 readonly settings_file="${CLAUDEX_SETTINGS_FILE:-$claudex_config_dir/settings.json}"
 readonly codex_session_helper="${CLAUDEX_CODEX_SESSION_HELPER:-$claudex_config_dir/codex-session}"
 readonly self_update_helper="${CLAUDEX_SELF_UPDATE_HELPER:-$claudex_config_dir/self-update}"
+readonly skill_bridge_helper="${CLAUDEX_SKILL_BRIDGE_HELPER:-$claudex_config_dir/skill-bridge.cjs}"
 export CLAUDEX_CODEX_AUTH_DIR CLAUDEX_CODEX_SOURCE_AUTH_FILE CLAUDEX_CODEX_AUTH_FILE
 
 if [[ "${1:-}" == self-update ]]; then
@@ -86,6 +89,9 @@ fi
 : "${CLAUDEX_AUTO_UPDATE:=on}"
 : "${CLAUDEX_UPDATE_INTERVAL_SECONDS:=86400}"
 : "${CLAUDEX_PLAN_MODE_POLICY:=conservative}"
+: "${CLAUDEX_SKILL_BRIDGE:=on}"
+: "${CLAUDEX_SKILL_PLUGINS:=on}"
+: "${CLAUDEX_SKILL_DOLLAR_REFERENCES:=on}"
 
 if (( ! early_runtime_bypass )) && [[ -z "$CLAUDEX_PROXY_TOKEN" ]]; then
   printf '%s\n' 'claudex: CLAUDEX_PROXY_TOKEN is not configured' >&2
@@ -207,13 +213,38 @@ fi
 case "$CLAUDEX_PLAN_MODE_POLICY" in conservative|normal) ;;
   *) printf '%s\n' 'claudex: CLAUDEX_PLAN_MODE_POLICY must be conservative or normal.' >&2; exit 2 ;;
 esac
+case "$CLAUDEX_SKILL_BRIDGE" in on|off) ;;
+  *) printf '%s\n' 'claudex: CLAUDEX_SKILL_BRIDGE must be on or off.' >&2; exit 2 ;;
+esac
+case "$CLAUDEX_SKILL_PLUGINS" in on|off) ;;
+  *) printf '%s\n' 'claudex: CLAUDEX_SKILL_PLUGINS must be on or off.' >&2; exit 2 ;;
+esac
+case "$CLAUDEX_SKILL_DOLLAR_REFERENCES" in on|off) ;;
+  *) printf '%s\n' 'claudex: CLAUDEX_SKILL_DOLLAR_REFERENCES must be on or off.' >&2; exit 2 ;;
+esac
 fi
 
 export CLAUDEX_USAGE_DISPLAY CLAUDEX_USAGE_REFRESH_SECONDS CLAUDEX_USAGE_TIMEOUT_SECONDS CLAUDEX_USAGE_MAX_STALE_SECONDS
 export CLAUDEX_USAGE_SOURCE CLAUDEX_USAGE_ALERT_PERCENT
+export CLAUDEX_SKILL_BRIDGE CLAUDEX_SKILL_PLUGINS CLAUDEX_SKILL_DOLLAR_REFERENCES
+export CLAUDEX_CLAUDE_CONFIG_DIR CLAUDEX_CLAUDE_MANAGED_SETTINGS_FILE CLAUDEX_SKILL_EXTRA_DIRS CLAUDEX_CODEX_ADMIN_SKILLS_DIR CODEX_HOME
 
 # Keep Claudex model choices, sessions, and preferences isolated from normal Claude Code.
 export CLAUDE_CONFIG_DIR="$claudex_config_dir"
+
+node_supports_skill_bridge() {
+  command -v node >/dev/null 2>&1 || return 1
+  node -e 'const major = Number(process.versions.node.split(".")[0]); process.exit(Number.isInteger(major) && major >= 18 ? 0 : 1)' \
+    >/dev/null 2>&1
+}
+
+if [[ "${1:-}" == skills ]]; then
+  node_supports_skill_bridge || { printf '%s\n' 'claudex: Node.js 18 or newer is required for skill compatibility.' >&2; exit 1; }
+  [[ -r "$skill_bridge_helper" ]] || { printf '%s\n' 'claudex: skill bridge helper is missing; reinstall Claudex.' >&2; exit 1; }
+  shift
+  [[ $# -eq 0 ]] || { printf '%s\n' 'Usage: claudex skills' >&2; exit 2; }
+  exec node "$skill_bridge_helper" list --project "$PWD"
+fi
 
 acquire_state_lock() {
   local lock_dir="$1" attempt mtime=0 now
@@ -1115,13 +1146,15 @@ use_proxy=1
 inject_agents=1
 inject_leader_guard=1
 inject_permission=1
+inject_skills=1
 
 case "${forwarded_args[0]:-}" in
-  --help|-h|--version|-v|agents|auth|auto-mode|doctor|gateway|install|mcp|plugin|plugins|project|self-update|setup-token|ultrareview|update|upgrade)
+  --help|-h|--version|-v|agents|auth|auto-mode|doctor|gateway|install|mcp|plugin|plugins|project|self-update|setup-token|skills|ultrareview|update|upgrade)
     use_proxy=0
     inject_agents=0
     inject_leader_guard=0
     inject_permission=0
+    inject_skills=0
     ;;
 esac
 
@@ -1131,6 +1164,7 @@ for argument in ${forwarded_args[@]+"${forwarded_args[@]}"}; do
       inject_agents=0
       inject_leader_guard=0
       inject_permission=0
+      inject_skills=0
       ;;
     --agents) inject_agents=0 ;;
     --permission-mode|--dangerously-skip-permissions|--allow-dangerously-skip-permissions)
@@ -1154,6 +1188,7 @@ if (( direct_chrome )); then
   inject_agents=0
   inject_leader_guard=0
   inject_permission=0
+  inject_skills=0
   if [[ -n "${CLAUDEX_CHROME_CONFIG_DIR:-}" ]]; then
     export CLAUDE_CONFIG_DIR="$CLAUDEX_CHROME_CONFIG_DIR"
   else
@@ -1226,6 +1261,31 @@ else
 fi
 
 load_claude_capabilities
+
+skill_bridge_add_dirs=()
+skill_bridge_plugin_dirs=()
+if (( inject_skills )) && [[ "$CLAUDEX_SKILL_BRIDGE" == on ]]; then
+  node_supports_skill_bridge || { printf '%s\n' 'claudex: Node.js 18 or newer is required for Claude and Codex skill compatibility.' >&2; exit 1; }
+  [[ -r "$skill_bridge_helper" ]] || { printf '%s\n' 'claudex: skill bridge helper is missing; reinstall Claudex.' >&2; exit 1; }
+  skill_bridge_json=$(node "$skill_bridge_helper" sync --project "$PWD") || {
+    printf '%s\n' 'claudex: skill discovery failed; run `claudex skills` for details.' >&2
+    exit 1
+  }
+  while IFS= read -r skill_directory; do
+    [[ -z "$skill_directory" ]] || skill_bridge_add_dirs+=("$skill_directory")
+  done < <(printf '%s\n' "$skill_bridge_json" | jq -r '.addDirs[]?')
+  while IFS= read -r plugin_directory; do
+    [[ -z "$plugin_directory" ]] || skill_bridge_plugin_dirs+=("$plugin_directory")
+  done < <(printf '%s\n' "$skill_bridge_json" | jq -r '.pluginDirs[]?')
+  if (( ${#skill_bridge_add_dirs[@]} > 0 )) && ! claude_supports '--add-dir'; then
+    printf '%s\n' 'claudex: this Claude Code build lacks --add-dir, which is required for installed Codex skills; run `claude update`.' >&2
+    exit 1
+  fi
+  if (( ${#skill_bridge_plugin_dirs[@]} > 0 )) && ! claude_supports '--plugin-dir'; then
+    printf '%s\n' 'claudex: this Claude Code build lacks --plugin-dir, which is required for installed plugin skills; run `claude update`.' >&2
+    exit 1
+  fi
+fi
 if (( use_proxy )) || [[ "${forwarded_args[0]:-}" == auto-mode ]]; then ensure_auto_mode_rules; fi
 case "${forwarded_args[0]:-}" in
   update|upgrade) ;;
@@ -1328,6 +1388,12 @@ ${claudex_codex_guard}
 ${claudex_plan_guard}"
 
 claude_args=()
+for skill_directory in ${skill_bridge_add_dirs[@]+"${skill_bridge_add_dirs[@]}"}; do
+  claude_args+=(--add-dir "$skill_directory")
+done
+for plugin_directory in ${skill_bridge_plugin_dirs[@]+"${skill_bridge_plugin_dirs[@]}"}; do
+  claude_args+=(--plugin-dir "$plugin_directory")
+done
 if (( inject_agents )) && claude_supports '--agents'; then
   claude_args+=(--agents "$claudex_agents")
 fi

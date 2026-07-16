@@ -19,7 +19,7 @@ files=(
   SECURITY.md SUPPORT.md bootstrap.ps1 bootstrap.sh package.json
   claudex claudex.cmd claudex.ps1 claudex-package.cmd
   codex-session codex-session.ps1 env.example install.ps1 install.sh install.zsh
-  preload.cjs self-update self-update.ps1 settings.json statusline statusline.ps1 usage-limit usage-limit.ps1
+  preload.cjs skill-bridge.cjs self-update self-update.ps1 settings.json statusline statusline.ps1 usage-limit usage-limit.ps1
 )
 directories=(bin docs skills)
 
@@ -43,6 +43,24 @@ fi
 tar -tzf "$dist/claudex-$version.tar.gz" | awk -v root="claudex-$version/" '
   index($0, root) != 1 || $0 ~ /(^|\/)\.\.($|\/)/ || $0 ~ /^\// { exit 1 }
 ' || { printf '%s\n' 'release archive contains an unsafe path' >&2; exit 1; }
+required_release_files=(
+  skill-bridge.cjs
+  skills/usage-limit/SKILL.md
+  skills/usage-limit/SKILL.windows.md
+)
+tar_listing=$(tar -tzf "$dist/claudex-$version.tar.gz")
+zip_listing=$(unzip -Z1 "$dist/claudex-$version-windows.zip")
+for required in "${required_release_files[@]}"; do
+  grep -Fx "claudex-$version/$required" <<<"$tar_listing" >/dev/null || {
+    printf 'release tarball is missing %s\n' "$required" >&2
+    exit 1
+  }
+  grep -Fx "claudex-$version/$required" <<<"$zip_listing" >/dev/null || {
+    printf 'release Windows archive is missing %s\n' "$required" >&2
+    exit 1
+  }
+done
+node --check "$stage/skill-bridge.cjs"
 (cd "$dist" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1) || \
   (cd "$dist" && sha256sum -c SHA256SUMS >/dev/null)
 

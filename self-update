@@ -221,7 +221,7 @@ backup_managed_files() {
   local destination="$1" path relative existed
   mkdir -p "$destination"
   for path in "$bin_dir/claudex" "$config_dir/settings.json" "$config_dir/statusline" \
-    "$config_dir/usage-limit" "$config_dir/codex-session" "$config_dir/preload.cjs" \
+    "$config_dir/usage-limit" "$config_dir/codex-session" "$config_dir/preload.cjs" "$config_dir/skill-bridge.cjs" \
     "$config_dir/self-update" "$config_dir/skills/usage-limit/SKILL.md" "$config_dir/env" "$config_dir/cliproxyapi.yaml" \
     "$config_dir/install.json"; do
     relative=${path#"$config_dir"/}
@@ -266,8 +266,15 @@ apply_archive_update() {
   mkdir -p "$stage"; tar -xzf "$archive" -C "$stage"
   staged_root="$stage/claudex-$latest"
   [[ -x "$staged_root/install.sh" ]] || { rm -rf "$archive" "$sums" "$stage"; fail 'release archive is missing its installer'; }
+  [[ -r "$staged_root/skill-bridge.cjs" ]] || { rm -rf "$archive" "$sums" "$stage"; fail 'release archive is missing its skill bridge'; }
   [[ "$(jq -r '.version // empty' "$staged_root/package.json")" == "$latest" ]] || { rm -rf "$archive" "$sums" "$stage"; fail 'release archive version does not match its tag'; }
   bash -n "$staged_root/install.sh" "$staged_root/claudex" "$staged_root/self-update" || { rm -rf "$archive" "$sums" "$stage"; fail 'release scripts failed validation'; }
+  if command -v node >/dev/null 2>&1 && \
+      node -e 'const major = Number(process.versions.node.split(".")[0]); process.exit(Number.isInteger(major) && major >= 18 ? 0 : 1)' >/dev/null 2>&1 && \
+      ! node --check "$staged_root/skill-bridge.cjs" >/dev/null; then
+    rm -rf "$archive" "$sums" "$stage"
+    fail 'release skill bridge failed Node.js syntax validation'
+  fi
   backup_managed_files "$backup"
   if ! CLAUDEX_INSTALL_METHOD=archive CLAUDEX_BIN_DIR="$bin_dir" CLAUDEX_SKIP_DEPENDENCY_INSTALL=1 \
       CLAUDEX_SKIP_SERVICE_START=1 CLAUDEX_SKIP_CLAUDE_UPDATE=1 bash "$staged_root/install.sh"; then

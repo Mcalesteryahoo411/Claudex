@@ -5,6 +5,7 @@ readonly root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 readonly bin_dir="${CLAUDEX_BIN_DIR:-$HOME/.local/bin}"
 readonly config_dir="${CLAUDEX_CONFIG_DIR:-$HOME/.config/claudex}"
 readonly managed_bin_dir="$config_dir/bin"
+readonly managed_node_dir="$config_dir/node"
 readonly managed_proxy="$managed_bin_dir/cliproxyapi"
 readonly auth_dir="$config_dir/codex-accounts"
 readonly env_file="$config_dir/env"
@@ -14,6 +15,7 @@ readonly usage_limit_target="$config_dir/usage-limit"
 readonly codex_session_target="$config_dir/codex-session"
 readonly usage_skill_target="$config_dir/skills/usage-limit/SKILL.md"
 readonly preload_target="$config_dir/preload.cjs"
+readonly skill_bridge_target="$config_dir/skill-bridge.cjs"
 readonly self_update_target="$config_dir/self-update"
 readonly install_receipt_target="$config_dir/install.json"
 readonly proxy_config_target="$config_dir/cliproxyapi.yaml"
@@ -22,6 +24,8 @@ readonly proxy_version="7.2.80"
 readonly proxy_port="${CLAUDEX_PROXY_PORT:-8318}"
 readonly skip_deps="${CLAUDEX_SKIP_DEPENDENCY_INSTALL:-0}"
 readonly skip_service="${CLAUDEX_SKIP_SERVICE_START:-0}"
+
+if [[ -x "$managed_node_dir/bin/node" ]]; then export PATH="$managed_node_dir/bin:$PATH"; fi
 
 # Preserve values supplied for this installer invocation. Sourcing the existing
 # managed env below must not silently override an explicit repair/migration
@@ -60,7 +64,7 @@ done
 [[ "$proxy_port" =~ ^[0-9]+$ ]] && (( proxy_port >= 1 && proxy_port <= 65535 )) || \
   fail 'CLAUDEX_PROXY_PORT must be an integer from 1 to 65535'
 
-for source_file in claudex codex-session statusline usage-limit preload.cjs self-update package.json settings.json skills/usage-limit/SKILL.md; do
+for source_file in claudex codex-session statusline usage-limit preload.cjs skill-bridge.cjs self-update package.json settings.json skills/usage-limit/SKILL.md; do
   [[ -r "$root/$source_file" ]] || fail "missing repository file: $source_file"
 done
 
@@ -84,7 +88,7 @@ install_jq() {
 }
 
 install_node() {
-  printf '%s\n' 'Installing Node.js and npm for the official Codex CLI package...'
+  printf '%s\n' 'Installing Node.js and npm for Claudex skill compatibility and the official Codex CLI package...'
   if command -v brew >/dev/null 2>&1; then brew install node
   elif command -v apt-get >/dev/null 2>&1; then run_as_root apt-get update; run_as_root apt-get install -y nodejs npm
   elif command -v dnf >/dev/null 2>&1; then run_as_root dnf install -y nodejs npm
@@ -92,14 +96,67 @@ install_node() {
   elif command -v zypper >/dev/null 2>&1; then run_as_root zypper --non-interactive install nodejs npm
   elif command -v pacman >/dev/null 2>&1; then run_as_root pacman -S --needed --noconfirm nodejs npm
   elif command -v apk >/dev/null 2>&1; then run_as_root apk add nodejs npm
-  else fail 'Node.js and npm are required to install Codex CLI, and no supported package manager was found'
+  else fail 'Node.js 18 or newer and npm are required, and no supported package manager was found'
   fi
+  if ! node_is_compatible; then install_managed_node; fi
+}
+
+node_is_compatible() {
+  command -v node >/dev/null 2>&1 || return 1
+  node -e 'const major = Number(process.versions.node.split(".")[0]); process.exit(Number.isInteger(major) && major >= 18 ? 0 : 1)' \
+    >/dev/null 2>&1
+}
+
+install_managed_node() {
+  [[ "$(uname -s)" == Linux ]] || fail 'the system package manager did not provide Node.js 18 or newer'
+  local architecture archive base_url sums expected actual node_tmp extracted backup=""
+  case "$(uname -m)" in
+    x86_64|amd64) architecture=x64 ;;
+    aarch64|arm64) architecture=arm64 ;;
+    *) fail "Node.js 18 or newer is unavailable for architecture $(uname -m)" ;;
+  esac
+  base_url='https://nodejs.org/dist/latest-v22.x'
+  node_tmp=$(mktemp -d "$config_dir/.node-install.XXXXXX")
+  trap 'rm -rf "$node_tmp"' RETURN
+  sums="$node_tmp/SHASUMS256.txt"
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    --connect-timeout 10 --max-time 180 --retry 3 --retry-delay 1 --retry-connrefused \
+    --output "$sums" "$base_url/SHASUMS256.txt"
+  archive=$(awk -v suffix="-linux-$architecture.tar.gz" '$2 ~ /^node-v[0-9]+\.[0-9]+\.[0-9]+-linux-/ && index($2, suffix) == length($2) - length(suffix) + 1 { print $2 }' "$sums")
+  [[ "$archive" != *$'\n'* && "$archive" =~ ^node-v[0-9]+\.[0-9]+\.[0-9]+-linux-(x64|arm64)\.tar\.gz$ ]] || \
+    fail 'official Node.js checksums did not contain one supported Linux archive'
+  expected=$(awk -v name="$archive" '$2 == name { print tolower($1) }' "$sums")
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail 'official Node.js checksum is invalid'
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    --connect-timeout 10 --max-time 300 --retry 3 --retry-delay 1 --retry-connrefused \
+    --output "$node_tmp/$archive" "$base_url/$archive"
+  if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$node_tmp/$archive" | awk '{print tolower($1)}')
+  elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$node_tmp/$archive" | awk '{print tolower($1)}')
+  else fail 'sha256sum or shasum is required to verify Node.js'; fi
+  [[ "$actual" == "$expected" ]] || fail 'official Node.js archive checksum mismatch'
+  tar -xzf "$node_tmp/$archive" -C "$node_tmp"
+  extracted="$node_tmp/${archive%.tar.gz}"
+  [[ -x "$extracted/bin/node" && -x "$extracted/bin/npm" ]] || fail 'official Node.js archive is incomplete'
+  "$extracted/bin/node" -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 18 ? 0 : 1)' || \
+    fail 'official Node.js archive is below the supported version'
+  if [[ -e "$managed_node_dir" ]]; then
+    backup="$config_dir/.node-backup-$$"
+    mv "$managed_node_dir" "$backup"
+  fi
+  if ! mv "$extracted" "$managed_node_dir"; then
+    [[ -z "$backup" ]] || mv "$backup" "$managed_node_dir"
+    fail 'could not activate the verified Node.js runtime'
+  fi
+  [[ -z "$backup" ]] || rm -rf "$backup"
+  export PATH="$managed_node_dir/bin:$PATH"
+  rm -rf "$node_tmp"
+  trap - RETURN
 }
 
 install_codex() {
-  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then install_node; fi
-  command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 || \
-    fail 'Node.js or npm was installed but is not available in PATH; open a new terminal and rerun the installer'
+  if ! node_is_compatible || ! command -v npm >/dev/null 2>&1; then install_node; fi
+  node_is_compatible && command -v npm >/dev/null 2>&1 || \
+    fail 'Node.js 18 or newer or npm was installed but is not available in PATH; open a new terminal and rerun the installer'
   local npm_prefix="$HOME/.local"
   printf '%s\n' 'Installing Codex CLI from the official @openai/codex npm package...'
   npm install --global --prefix "$npm_prefix" @openai/codex
@@ -209,6 +266,7 @@ trap cleanup EXIT
 if [[ "$skip_deps" != 1 ]]; then
   command -v curl >/dev/null 2>&1 || fail 'curl is required to install Claudex'
   command -v jq >/dev/null 2>&1 || install_jq
+  node_is_compatible || install_node
   command -v codex >/dev/null 2>&1 || install_codex
   if ! command -v claude >/dev/null 2>&1; then
     printf '%s\n' "Installing Claude Code with Anthropic's native installer..."
@@ -220,11 +278,18 @@ if [[ "$skip_deps" != 1 ]]; then
     export PATH="$HOME/.local/bin:$PATH"
   fi
   if ! managed_proxy_is_current; then install_proxy; fi
+elif ! node_is_compatible && [[ "${CLAUDEX_INSTALL_METHOD:-}" == archive && -r "$install_receipt_target" ]]; then
+  # Archive self-updates historically disabled dependency installation. Allow
+  # an existing installation to acquire the newly required bridge runtime so
+  # releases predating skill compatibility do not get stuck in a rollback loop.
+  install_node
 fi
 
 for required_command in jq codex claude; do
   command -v "$required_command" >/dev/null 2>&1 || fail "'$required_command' is required but was not found in PATH"
 done
+node_is_compatible || fail 'Node.js 18 or newer is required for Claude and Codex skill compatibility'
+node --check "$root/skill-bridge.cjs" >/dev/null || fail 'skill-bridge.cjs failed Node.js syntax validation'
 
 if [[ "$skip_deps" != 1 && "${CLAUDEX_SKIP_CLAUDE_UPDATE:-0}" != 1 ]]; then
   printf '%s\n' 'Checking Claude Code for the latest compatible release...'
@@ -285,8 +350,9 @@ env_tmp=$(mktemp "$config_dir/.env.tmp.XXXXXX")
   printf 'CLAUDEX_PROXY_CONFIG=%q\n' "$runtime_proxy_config"
   printf 'CLAUDEX_PROXY_BIN=%q\n' "$runtime_proxy_bin"
   printf 'CLAUDEX_CODEX_AUTH_DIR=%q\n' "$runtime_auth_dir"
+  [[ ! -x "$managed_node_dir/bin/node" ]] || printf 'CLAUDEX_NODE_BIN=%q\n' "$managed_node_dir/bin"
   if [[ -r "$env_file" ]]; then
-    awk '!/^(CLAUDEX_PROXY_TOKEN|CLAUDEX_PROXY_URL|CLAUDEX_PROXY_CONFIG|CLAUDEX_PROXY_BIN|CLAUDEX_CODEX_AUTH_DIR)=/' "$env_file"
+    awk '!/^(CLAUDEX_PROXY_TOKEN|CLAUDEX_PROXY_URL|CLAUDEX_PROXY_CONFIG|CLAUDEX_PROXY_BIN|CLAUDEX_CODEX_AUTH_DIR|CLAUDEX_NODE_BIN)=/' "$env_file"
   fi
 } > "$env_tmp"
 mv -f "$env_tmp" "$env_file"
@@ -295,7 +361,7 @@ chmod 600 "$env_file"
 timestamp=$(date +%Y%m%d-%H%M%S)
 backup_dir="$config_dir/backups/install-$timestamp"
 backed_up=0
-for managed_file in "$launcher_target" "$settings_target" "$statusline_target" "$usage_limit_target" "$codex_session_target" "$preload_target" "$self_update_target" "$usage_skill_target" "$install_receipt_target"; do
+for managed_file in "$launcher_target" "$settings_target" "$statusline_target" "$usage_limit_target" "$codex_session_target" "$preload_target" "$skill_bridge_target" "$self_update_target" "$usage_skill_target" "$install_receipt_target"; do
   if [[ -e "$managed_file" ]]; then
     mkdir -p "$backup_dir"
     cp -p "$managed_file" "$backup_dir/$(basename "$managed_file")"
@@ -309,6 +375,7 @@ install -m 755 "$root/statusline" "$statusline_target"
 install -m 755 "$root/usage-limit" "$usage_limit_target"
 install -m 755 "$root/codex-session" "$codex_session_target"
 install -m 644 "$root/preload.cjs" "$preload_target"
+install -m 644 "$root/skill-bridge.cjs" "$skill_bridge_target"
 install -m 755 "$root/self-update" "$self_update_target"
 mkdir -p "$(dirname "$usage_skill_target")"
 install -m 644 "$root/skills/usage-limit/SKILL.md" "$usage_skill_target"

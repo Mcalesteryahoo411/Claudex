@@ -27,6 +27,13 @@ key.
 | `CLAUDEX_PLAN_MODE_POLICY` | `conservative` | `conservative` or `normal` |
 | `CLAUDEX_MOUSE_POINTER_SHAPE` | `pointer` | `pointer`, `default`, or `off` |
 | `CLAUDEX_CHROME_CONFIG_DIR` | normal Claude profile | Optional dedicated first-party Claude profile |
+| `CLAUDEX_SKILL_BRIDGE` | `on` | `on` discovers existing Claude and Codex skills; `off` disables the compatibility overlay |
+| `CLAUDEX_SKILL_PLUGINS` | `on` | Include enabled Claude and Codex plugin skills in discovery |
+| `CLAUDEX_SKILL_DOLLAR_REFERENCES` | `on` | Resolve Codex-style `$skill` references through the isolated compatibility hook |
+| `CLAUDEX_CLAUDE_CONFIG_DIR` | `~/.claude` | Normal Claude profile whose personal skills and legacy commands should be shared |
+| `CLAUDEX_SKILL_EXTRA_DIRS` | unset | OS path-list of additional Agent Skills roots |
+| `CLAUDEX_CODEX_ADMIN_SKILLS_DIR` | platform admin root | Override Codex's admin skill directory |
+| `CLAUDEX_NODE_BIN` | managed automatically | Private verified Node.js runtime path on legacy Linux distributions |
 
 The concurrency values are Claudex safeguards, not promises that an upstream
 account will always accept that many simultaneous requests. Lower them when an
@@ -123,6 +130,9 @@ details and are not a stable public interface.
 | `~/.local/bin/claudex.ps1` and `claudex.cmd` | Windows launchers |
 | `~/.config/claudex/env` | Private environment config and generated key |
 | `~/.config/claudex/settings.json` | Isolated Claude Code settings |
+| `~/.config/claudex/skill-bridge.cjs` | Cross-platform skill discovery and compatibility helper |
+| `~/.config/claudex/skill-bridge` | Content-addressed, rebuildable views of existing Claude and Codex skills |
+| `~/.config/claudex/skills/usage-limit` | Bundled platform-native `/usage-limit` skill |
 | `~/.config/claudex/codex-accounts` | Mode-restricted local credential bridge |
 | `~/.config/claudex/usage-cache` | Sanitized usage values only |
 | `~/.config/claudex/statusline-cache` | Per-session context percentages |

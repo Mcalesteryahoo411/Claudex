@@ -13,7 +13,7 @@ Production code is intentionally dependency-light: Bash, PowerShell, a small Nod
 ```bash
 ./test.sh                    # full Unix suite (runs test.zsh in an isolated fake home)
 ./test.ps1                   # full Windows suite (run from PowerShell)
-npm test                     # check:docs + check:preload (no shell suite)
+npm test                     # docs + preload + skill contract/security suites
 npm run test:all             # same as ./test.sh
 ./scripts/build-release.sh   # build release archives (tarball + Windows zip) into dist/
 ```
@@ -24,6 +24,10 @@ Focused checks (fast, no fake-home setup) before opening a PR:
 node scripts/check-docs.mjs        # community-file + relative Markdown link validation
 node scripts/check-preload.mjs     # preload.cjs integrity
 node --check preload.cjs           # Node syntax check
+node --check skill-bridge.cjs       # shared skill bridge syntax check
+node tests/skill-bridge.test.cjs    # discovery/materialization behavior
+node tests/skill-contract.test.cjs  # Claude/Codex compatibility contract
+node tests/skill-security.test.cjs  # hostile filesystem/plugin inputs
 bash -n claudex codex-session install.sh statusline usage-limit
 zsh -n test.zsh
 git diff --check
@@ -60,6 +64,7 @@ user -> claudex launcher (Bash or PowerShell)
 | Usage helper | `usage-limit` | `usage-limit.ps1` | Fetch, sanitize, cache, and display Codex usage limits |
 | Status line | `statusline` | `statusline.ps1` | Render model, effort, stable context %, cached usage status |
 | Terminal preload | `preload.cjs` | shared | Translate Solplan input and replace only the positioned interactive welcome billing field before restoring native stdout |
+| Skill bridge | `skill-bridge.cjs` | shared | Snapshot and adapt existing Claude/Codex skills and plugin skills without activating source plugin code |
 | Settings template | `settings.json` | shared | Isolated default Claude Code settings written into the managed config |
 
 Every shared behavior change must touch both the Bash and PowerShell implementation (`claudex`/`claudex.ps1`, `codex-session`/`codex-session.ps1`, etc.) — platform drift is treated as a bug unless the underlying OS genuinely lacks the feature, in which case the boundary must be documented, not silently emulated.
@@ -111,6 +116,7 @@ Updating the CLIProxyAPI pin is security-sensitive: collect every macOS/Linux/Wi
 | `usage-limit*` | Detailed and cached quota reporting |
 | `statusline*` | Stable compact footer |
 | `preload.cjs` | Byte-preserving Solplan input alias and one-shot interactive ChatGPT plan label |
+| `skill-bridge.cjs`, `skills/` | Existing-skill compatibility, isolated plugin adapters, and platform-specific bundled skills |
 | `settings.json`, `env.example` | Reproducible configuration templates |
 | `test.zsh`, `test.ps1`, `test.sh` | Isolated cross-platform regression suites |
 | `scripts/` | `build-release.sh`, `check-docs.mjs`, `check-preload.mjs` |

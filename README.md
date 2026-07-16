@@ -86,6 +86,9 @@ For release downloads, system requirements, updating, and removal, see the [inst
 - Auto, max-effort, and Ultracode modes with explicit and separate behavior.
 - Stable context accounting and automatic compaction near 280k tokens.
 - Codex usage-limit reporting in the status line and through `/usage-limit`.
+- Automatic, non-destructive discovery of already-installed Claude Code and
+  Codex skills, project skills, legacy Claude commands, and enabled plugin
+  skills, with `/skill` and `$skill` references inside Claudex.
 - The detected ChatGPT subscription tier in the startup banner instead of
   Claude Code's misleading API-billing label.
 - Native agent activity labels that include model, reasoning effort, and task,
@@ -108,6 +111,7 @@ claudex --max-effort       Use Claude Code's maximum reasoning effort
 claudex --ultracode        Enable the session-scoped Ultracode workflow
 claudex --manual           Disable automatic permissions for this launch
 claudex --usage-limit      Refresh and display Codex plan limits
+claudex skills             List Claude and Codex skills available in this project
 claudex --accounts         List locally available Codex usage accounts
 claudex --doctor           Check installation, authentication, and models
 claudex --login            Sign in through Codex and synchronize the session
@@ -117,7 +121,7 @@ claudex self-update --apply   Apply the latest stable release now
 claudex --claude-chrome    Use the direct Claude profile with Chrome support
 ```
 
-Inside Claudex, `/model solplan` selects Solplan and `/usage-limit` prints the detailed quota report. Unknown options and supported Claude Code subcommands are passed through unchanged. See the [usage guide](docs/usage.md) for the complete command reference.
+Inside Claudex, `/model solplan` selects Solplan and `/usage-limit` prints the detailed quota report. Existing Claude and Codex skills can be referenced with `/skill-name` or `$skill-name`; see the [skills guide](docs/skills.md) for discovery and collision behavior. Unknown options and supported Claude Code subcommands are passed through unchanged. See the [usage guide](docs/usage.md) for the complete command reference.
 
 ## Supported platforms
 
@@ -136,9 +140,10 @@ Claude Code's own platform limitations still apply. In particular, native Window
 | --- | --- |
 | [Documentation index](docs/README.md) | Find the right guide quickly |
 | [Installation](docs/installation.md) | Requirements, setup, updates, and removal |
-| [Package managers](docs/package-managers.md) | Homebrew, npm, Scoop, and WinGet installation |
+| [Package managers](docs/package-managers.md) | Homebrew, Scoop, and WinGet installation |
 | [Usage](docs/usage.md) | Commands, model modes, Chrome, and pass-through behavior |
 | [Configuration](docs/configuration.md) | Supported environment variables and settings |
+| [Skills](docs/skills.md) | Existing Claude Code and Codex skill discovery, aliases, and compatibility |
 | [Architecture](docs/architecture.md) | Components, data flow, authentication, and trust boundaries |
 | [Troubleshooting](docs/troubleshooting.md) | Diagnose common installation and runtime problems |
 | [Development](docs/development.md) | Repository layout, tests, and release workflow |

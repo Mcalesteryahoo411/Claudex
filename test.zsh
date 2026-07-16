@@ -17,7 +17,30 @@ cp "$root/settings.json" "$tmp/home/.config/claudex/settings.json"
 cp "$root/usage-limit" "$tmp/home/.config/claudex/usage-limit"
 cp "$root/codex-session" "$tmp/home/.config/claudex/codex-session"
 cp "$root/preload.cjs" "$tmp/home/.config/claudex/preload.cjs"
+cp "$root/skill-bridge.cjs" "$tmp/home/.config/claudex/skill-bridge.cjs"
+mkdir -p "$tmp/home/.claude/skills/existing-claude" "$tmp/home/.agents/skills/existing-codex"
+printf '%s\n' '---' 'name: existing-claude' 'description: Existing Claude test skill' '---' '' 'Claude instructions.' > "$tmp/home/.claude/skills/existing-claude/SKILL.md"
+printf '%s\n' '---' 'name: existing-codex' 'description: Existing Codex test skill' '---' '' 'Codex instructions.' > "$tmp/home/.agents/skills/existing-codex/SKILL.md"
 chmod +x "$tmp/home/.config/claudex/codex-session"
+
+# Values sourced from Claudex's Unix env file must reach the Node skill bridge.
+skill_env_home="$tmp/skill-env-home"
+skill_env_claude="$tmp/custom-claude-home"
+mkdir -p "$skill_env_home/.config/claudex" "$skill_env_home/.agents/skills/env-codex" "$skill_env_claude/skills/env-claude"
+cp "$root/skill-bridge.cjs" "$skill_env_home/.config/claudex/skill-bridge.cjs"
+printf '%s\n' \
+  'CLAUDEX_SKILL_BRIDGE=on' \
+  'CLAUDEX_SKILL_PLUGINS=off' \
+  'CLAUDEX_SKILL_DOLLAR_REFERENCES=off' \
+  "CLAUDEX_CLAUDE_CONFIG_DIR=$skill_env_claude" \
+  "CLAUDEX_CODEX_ADMIN_SKILLS_DIR=$tmp/missing-admin-skills" \
+  > "$skill_env_home/.config/claudex/env"
+printf '%s\n' '---' 'name: env-claude' 'description: Env Claude skill' '---' '' 'Claude.' > "$skill_env_claude/skills/env-claude/SKILL.md"
+printf '%s\n' '---' 'name: env-codex' 'description: Env Codex skill' '---' '' 'Codex.' > "$skill_env_home/.agents/skills/env-codex/SKILL.md"
+skill_env_output=$(HOME="$skill_env_home" PATH="$tmp/bin:$PATH" "$root/claudex" skills)
+[[ "$skill_env_output" == *$'/env-claude\t'* ]]
+[[ "$skill_env_output" == *$'/env-codex\t'* ]]
+[[ "$skill_env_output" == *'0 isolated compatibility plugins'* ]]
 cat > "$tmp/home/.codex/auth.json" <<'EOF'
 {"OPENAI_API_KEY":null,"auth_mode":"chatgpt","last_refresh":"2026-07-15T01:00:00Z","tokens":{"access_token":"codex-source-access","refresh_token":"codex-source-refresh","id_token":"codex-source-id","account_id":"account-test"}}
 EOF
@@ -55,7 +78,7 @@ if [[ "${1:-}" == "--version" ]]; then
   exit
 fi
 if [[ "${1:-}" == "--help" ]]; then
-  printf '%s\n' '--model --agents --append-system-prompt --permission-mode --settings --effort'
+  printf '%s\n' '--model --agents --append-system-prompt --permission-mode --settings --effort --add-dir --plugin-dir'
   exit
 fi
 if [[ "${1:-}" == "auto-mode" && "${2:-}" == "defaults" ]]; then
@@ -155,6 +178,14 @@ printf '%s\n' 'CLIProxyAPI test'
 printf '%s\n' 'extra version detail'
 exit 1
 EOF
+# Never let the isolated fake-home suite execute the developer machine's real
+# Homebrew. Proxy recovery probes brew before falling back to PATH, and a cold
+# Homebrew startup can consume the fake Claude process's entire recovery window.
+cat > "$tmp/bin/brew" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --prefix ]]; then printf '%s\n' '/nonexistent/homebrew'; exit 0; fi
+exit 1
+EOF
 chmod +x "$tmp/bin/"*
 
 run_wrapper() {
@@ -188,7 +219,27 @@ bash -n "$root/install.sh"
 bash -n "$root/bootstrap.sh"
 sh -n "$root/install.zsh"
 node --check "$root/preload.cjs"
+node --check "$root/skill-bridge.cjs"
 node --check "$root/bin/claudex-package.mjs"
+node "$root/tests/skill-bridge.test.cjs"
+node "$root/tests/skill-contract.test.cjs"
+node "$root/tests/skill-security.test.cjs"
+
+skills_output=$(run_wrapper skills)
+[[ "$skills_output" == *'/existing-claude'* ]]
+[[ "$skills_output" == *'/existing-codex'* ]]
+old_node_bin="$tmp/old-node-bin"
+mkdir -p "$old_node_bin"
+cat > "$old_node_bin/node" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$old_node_bin/node"
+if PATH="$old_node_bin:$PATH" run_wrapper skills >"$tmp/old-node.stdout" 2>"$tmp/old-node.stderr"; then
+  printf '%s\n' 'expected a pre-18 Node runtime to be rejected' >&2
+  exit 1
+fi
+grep -F 'Node.js 18 or newer is required for skill compatibility' "$tmp/old-node.stderr" >/dev/null
 
 auth_recovery_log="$tmp/auth-recovery.log"
 auth_recovery_marker="$tmp/auth-recovery.marker"
@@ -329,6 +380,8 @@ jq -e '[.additionalModelOptionsCache[] | select(.value == "gpt-5.6-sol")] as $so
 [[ "$default_output" == *$'INTERACTIVE=\n'* ]]
 [[ "$default_output" == *'--permission-mode auto'* ]]
 [[ "$default_output" == *'--model gpt-5.6-terra'* ]]
+[[ "$default_output" == *'--add-dir '*'/skill-bridge/generations/'* ]]
+[[ "$default_output" == *'--plugin-dir '*'/claudex-codex-skill-references'* ]]
 [[ "$default_output" == *'Do not create a team, spawn or delegate to additional agents'* ]]
 [[ "$default_output" == *'Do not create, claim, or update entries in the shared task list'* ]]
 [[ "$default_output" == *'keep at most 3 Agent tasks active at once'* ]]
@@ -447,6 +500,7 @@ fi
 
 bare_output=$(run_wrapper --bare --print test-prompt)
 [[ "$bare_output" != *'--agents'* ]]
+[[ "$bare_output" != *'--add-dir'* ]]
 [[ "$bare_output" != *'--append-system-prompt'* ]]
 [[ "$bare_output" != *'--permission-mode'* ]]
 
@@ -718,6 +772,7 @@ install_output=$(HOME="$install_home" PATH="$tmp/bin:$PATH" \
 [[ -r "$install_home/.config/claudex/preload.cjs" ]]
 [[ -x "$install_home/.config/claudex/self-update" ]]
 [[ -r "$install_home/.config/claudex/skills/usage-limit/SKILL.md" ]]
+[[ -r "$install_home/.config/claudex/skill-bridge.cjs" ]]
 [[ -r "$install_home/.config/claudex/settings.json" ]]
 [[ -r "$install_home/.config/claudex/env" ]]
 [[ -r "$install_home/.config/claudex/install.json" ]]
@@ -863,6 +918,36 @@ HOME="$codex_install_home" PATH="$codex_install_bin:/usr/bin:/bin" \
 [[ "$(wc -l < "$codex_login_log" | tr -d ' ')" == 1 ]]
 [[ ! -e "$codex_install_home/.config/claudex/run/install.lock" ]]
 
+# Archive updates from releases that predate the skill bridge set skip-deps.
+# They must still be able to migrate a standalone-Codex installation that has
+# no Node runtime instead of rolling back on every automatic update attempt.
+node_migration_home="$tmp/node migration home"
+node_migration_bin="$tmp/node-migration-bin"
+mkdir -p "$node_migration_home/.config/claudex" "$node_migration_home/.codex" "$node_migration_bin"
+cp "$tmp/home/.codex/auth.json" "$node_migration_home/.codex/auth.json"
+for command in claude codex curl; do ln -s "$tmp/bin/$command" "$node_migration_bin/$command"; done
+ln -s "$(command -v jq)" "$node_migration_bin/jq"
+cat > "$node_migration_bin/brew" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == 'install node' ]]
+ln -sf "$FAKE_REAL_NODE" "$FAKE_NODE_MIGRATION_BIN/node"
+printf '%s\n' "$*" >> "$FAKE_NODE_MIGRATION_LOG"
+EOF
+chmod +x "$node_migration_bin/brew"
+cat > "$node_migration_home/.config/claudex/install.json" <<EOF
+{"schema":1,"version":"1.4.4","method":"archive","binDir":"$node_migration_home/.local/bin","repository":"BeamoINT/Claudex"}
+EOF
+node_migration_log="$tmp/node-migration.log"
+real_node_for_migration=$(command -v node)
+HOME="$node_migration_home" PATH="$node_migration_bin:/usr/bin:/bin" \
+  CLAUDEX_INSTALL_METHOD=archive CLAUDEX_PROXY_TOKEN='node-migration-token' \
+  CLAUDEX_SKIP_DEPENDENCY_INSTALL=1 CLAUDEX_SKIP_SERVICE_START=1 \
+  FAKE_REAL_NODE="$real_node_for_migration" FAKE_NODE_MIGRATION_BIN="$node_migration_bin" \
+  FAKE_NODE_MIGRATION_LOG="$node_migration_log" "$root/install.sh" >/dev/null
+grep -Fx 'install node' "$node_migration_log" >/dev/null
+[[ -r "$node_migration_home/.config/claudex/skill-bridge.cjs" ]]
+
 # The website bootstrap executes only a checksum-valid, path-safe release and
 # removes its extraction directory after the installer returns.
 bootstrap_fixture="$tmp/bootstrap-fixture"
@@ -993,6 +1078,7 @@ mkdir -p "$update_home/.config/claudex" "$update_home/.codex" "$update_home/.cli
 cp "$root/settings.json" "$update_home/.config/claudex/settings.json"
 cp "$root/codex-session" "$update_home/.config/claudex/codex-session"
 cp "$root/preload.cjs" "$update_home/.config/claudex/preload.cjs"
+cp "$root/skill-bridge.cjs" "$update_home/.config/claudex/skill-bridge.cjs"
 chmod +x "$update_home/.config/claudex/codex-session"
 cp "$tmp/home/.codex/auth.json" "$update_home/.codex/auth.json"
 printf '%s\n' 'CLAUDEX_PROXY_TOKEN=test-token' "CLAUDEX_CODEX_AUTH_DIR=$update_home/.cli-proxy-api" > "$update_home/.config/claudex/env"

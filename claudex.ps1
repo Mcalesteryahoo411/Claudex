@@ -40,6 +40,23 @@ function Fail([string] $Message, [int] $Code = 1) {
     exit $Code
 }
 
+function Get-NodeMajorVersion {
+    $nodeCommand = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $nodeCommand) { return 0 }
+    try { $versionText = [string] ((& $nodeCommand.Source --version 2>$null | Select-Object -First 1)) }
+    catch { return 0 }
+    $major = 0
+    if ($versionText -match '^v?(\d+)(?:\.|$)' -and [int]::TryParse($Matches[1], [ref] $major)) { return $major }
+    return 0
+}
+
+function Assert-SkillBridgeNode {
+    $nodeMajor = Get-NodeMajorVersion
+    if ($nodeMajor -ge 18) { return }
+    $detected = if ($nodeMajor -gt 0) { "found Node.js $nodeMajor" } else { 'Node.js was not found' }
+    Fail "Node.js 18 or newer is required for skill compatibility ($detected); rerun the Claudex installer to install or upgrade Node.js."
+}
+
 if (Test-Path -LiteralPath $configFile -PathType Leaf) {
     foreach ($line in [IO.File]::ReadAllLines($configFile)) {
         if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
@@ -85,8 +102,12 @@ $claudeUpdateInterval = Env-OrDefault 'CLAUDEX_CLAUDE_UPDATE_INTERVAL_SECONDS' '
 $claudexAutoUpdate = Env-OrDefault 'CLAUDEX_AUTO_UPDATE' 'on'
 $claudexUpdateInterval = Env-OrDefault 'CLAUDEX_UPDATE_INTERVAL_SECONDS' '86400'
 $planModePolicy = Env-OrDefault 'CLAUDEX_PLAN_MODE_POLICY' 'conservative'
+$skillBridgeMode = Env-OrDefault 'CLAUDEX_SKILL_BRIDGE' 'on'
+$skillPluginMode = Env-OrDefault 'CLAUDEX_SKILL_PLUGINS' 'on'
+$skillDollarReferenceMode = Env-OrDefault 'CLAUDEX_SKILL_DOLLAR_REFERENCES' 'on'
 $codexSessionHelper = Env-OrDefault 'CLAUDEX_CODEX_SESSION_HELPER' (Join-Path $configDir 'codex-session.ps1')
 $selfUpdateHelper = Env-OrDefault 'CLAUDEX_SELF_UPDATE_HELPER' (Join-Path $configDir 'self-update.ps1')
+$skillBridgeHelper = Env-OrDefault 'CLAUDEX_SKILL_BRIDGE_HELPER' (Join-Path $configDir 'skill-bridge.cjs')
 
 if ($ClaudeArguments.Count -gt 0 -and $ClaudeArguments[0] -eq 'self-update') {
     if (-not (Test-Path -LiteralPath $selfUpdateHelper -PathType Leaf)) { Fail 'self-update helper is missing; rerun the installer.' }
@@ -113,7 +134,7 @@ if ($ClaudeArguments.Count -gt 0 -and $ClaudeArguments[0] -in @('--login', '--lo
 }
 
 $earlyRuntimeBypass = $false
-$earlyMaintenanceCommands = @('--help', '-h', '--version', '-v', 'agents', 'auth', 'gateway', 'install', 'mcp', 'plugin', 'plugins', 'project', 'self-update', 'setup-token', 'ultrareview', 'update', 'upgrade')
+$earlyMaintenanceCommands = @('--help', '-h', '--version', '-v', 'agents', 'auth', 'gateway', 'install', 'mcp', 'plugin', 'plugins', 'project', 'self-update', 'setup-token', 'skills', 'ultrareview', 'update', 'upgrade')
 foreach ($earlyArgument in $ClaudeArguments) {
     if ($earlyArgument -eq '--claude-chrome') { $earlyRuntimeBypass = $true; break }
     if ($earlyArgument -in @('--sol', '--terra', '--luna', '--solplan', '--manual', '--auto', '--accept-edits', '--ultracode', '--max-effort')) { continue }
@@ -176,6 +197,9 @@ if (-not $earlyRuntimeBypass) {
     if ($claudeAutoUpdate -notin @('on', 'off')) { Fail 'CLAUDEX_CLAUDE_AUTO_UPDATE must be on or off.' 2 }
     if ($claudexAutoUpdate -notin @('on', 'notify', 'off')) { Fail 'CLAUDEX_AUTO_UPDATE must be on, notify, or off.' 2 }
     if ($planModePolicy -notin @('conservative', 'normal')) { Fail 'CLAUDEX_PLAN_MODE_POLICY must be conservative or normal.' 2 }
+    if ($skillBridgeMode -notin @('on', 'off')) { Fail 'CLAUDEX_SKILL_BRIDGE must be on or off.' 2 }
+    if ($skillPluginMode -notin @('on', 'off')) { Fail 'CLAUDEX_SKILL_PLUGINS must be on or off.' 2 }
+    if ($skillDollarReferenceMode -notin @('on', 'off')) { Fail 'CLAUDEX_SKILL_DOLLAR_REFERENCES must be on or off.' 2 }
 } else {
     $toolConcurrencyNumber = 3; $agentConcurrencyNumber = 3; $maxRetriesNumber = 4
     $contextWindowNumber = 400000; $compactWindowNumber = 280000
@@ -194,6 +218,14 @@ if (-not $earlyRuntimeBypass) {
 }
 
 $env:CLAUDE_CONFIG_DIR = $configDir
+
+if ($ClaudeArguments.Count -gt 0 -and $ClaudeArguments[0] -eq 'skills') {
+    if ($ClaudeArguments.Count -ne 1) { Fail 'Usage: claudex skills' 2 }
+    Assert-SkillBridgeNode
+    if (-not (Test-Path -LiteralPath $skillBridgeHelper -PathType Leaf)) { Fail 'skill bridge helper is missing; reinstall Claudex.' }
+    & node $skillBridgeHelper list --project (Get-Location).Path
+    exit $LASTEXITCODE
+}
 $stateFile = Join-Path $configDir '.claude.json'
 $managedModels = @(
     [pscustomobject]@{ value = 'opusplan'; label = 'GPT-5.6 Solplan'; description = 'GPT-5.6 Sol in plan mode, GPT-5.6 Terra for implementation' },
@@ -1109,18 +1141,21 @@ $useProxy = $true
 $injectAgents = $true
 $injectLeaderGuard = $true
 $injectPermission = $true
-$maintenanceCommands = @('--help', '-h', '--version', '-v', 'agents', 'auth', 'auto-mode', 'doctor', 'gateway', 'install', 'mcp', 'plugin', 'plugins', 'project', 'self-update', 'setup-token', 'ultrareview', 'update', 'upgrade')
+$injectSkills = $true
+$maintenanceCommands = @('--help', '-h', '--version', '-v', 'agents', 'auth', 'auto-mode', 'doctor', 'gateway', 'install', 'mcp', 'plugin', 'plugins', 'project', 'self-update', 'setup-token', 'skills', 'ultrareview', 'update', 'upgrade')
 if ($forwardArguments.Count -gt 0 -and $forwardArguments[0] -in $maintenanceCommands) {
     $useProxy = $false
     $injectAgents = $false
     $injectLeaderGuard = $false
     $injectPermission = $false
+    $injectSkills = $false
 }
 foreach ($argument in $forwardArguments) {
     if ($argument -in @('--safe-mode', '--bare')) {
         $injectAgents = $false
         $injectLeaderGuard = $false
         $injectPermission = $false
+        $injectSkills = $false
     }
     if ($argument -eq '--agents') { $injectAgents = $false }
     if ($argument -in @('--permission-mode', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions')) { $injectPermission = $false }
@@ -1135,6 +1170,7 @@ if ($directChrome) {
     $injectAgents = $false
     $injectLeaderGuard = $false
     $injectPermission = $false
+    $injectSkills = $false
     if ($env:CLAUDEX_CHROME_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR = $env:CLAUDEX_CHROME_CONFIG_DIR }
     else { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue }
     Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
@@ -1220,6 +1256,26 @@ if ($useProxy) {
 
 if ($useProxy -or $effortMode) { Load-ClaudeCapabilities }
 else { Resolve-ClaudeCommand; $script:claudeHelp = '' }
+
+$skillBridgeAddDirs = @()
+$skillBridgePluginDirs = @()
+if ($injectSkills -and $skillBridgeMode -eq 'on') {
+    Assert-SkillBridgeNode
+    if (-not (Test-Path -LiteralPath $skillBridgeHelper -PathType Leaf)) { Fail 'skill bridge helper is missing; reinstall Claudex.' }
+    try {
+        $skillBridgeOutput = (& node $skillBridgeHelper sync --project (Get-Location).Path | Out-String)
+        if ($LASTEXITCODE -ne 0) { throw 'skill bridge helper failed' }
+        $skillBridgeResult = $skillBridgeOutput | ConvertFrom-Json
+        $skillBridgeAddDirs = @($skillBridgeResult.addDirs | Where-Object { $_ })
+        $skillBridgePluginDirs = @($skillBridgeResult.pluginDirs | Where-Object { $_ })
+    } catch { Fail 'skill discovery failed; run `claudex skills` for details.' }
+    if ($skillBridgeAddDirs.Count -gt 0 -and -not (Test-ClaudeOption '--add-dir')) {
+        Fail 'this Claude Code build lacks --add-dir, which is required for installed Codex skills; run `claude update`.'
+    }
+    if ($skillBridgePluginDirs.Count -gt 0 -and -not (Test-ClaudeOption '--plugin-dir')) {
+        Fail 'this Claude Code build lacks --plugin-dir, which is required for installed plugin skills; run `claude update`.'
+    }
+}
 if ($useProxy -or ($forwardArguments.Count -gt 0 -and $forwardArguments[0] -eq 'auto-mode')) { Update-AutoModeRules }
 if ($forwardArguments.Count -eq 0 -or $forwardArguments[0] -notin @('update', 'upgrade')) {
     Start-ClaudeUpdateCheck
@@ -1288,6 +1344,12 @@ $planGuard = if ($planModePolicy -eq 'conservative') { 'Claudex plan-mode rule: 
 $leaderGuard = @($capacityGuard, $taskGuard, $codexGuard, $planGuard) -join ([Environment]::NewLine + [Environment]::NewLine)
 
 $claudeLaunchArguments = New-Object 'System.Collections.Generic.List[string]'
+foreach ($skillDirectory in $skillBridgeAddDirs) {
+    $claudeLaunchArguments.Add('--add-dir'); $claudeLaunchArguments.Add([string] $skillDirectory)
+}
+foreach ($pluginDirectory in $skillBridgePluginDirs) {
+    $claudeLaunchArguments.Add('--plugin-dir'); $claudeLaunchArguments.Add([string] $pluginDirectory)
+}
 if ($injectAgents -and (Test-ClaudeOption '--agents')) {
     foreach ($value in @('--agents', $agentsJson)) { $claudeLaunchArguments.Add($value) }
 }

@@ -169,6 +169,16 @@ function Receive-HttpsFile(
     [int] $TimeoutSeconds,
     [string] $Accept = 'application/octet-stream'
 ) {
+    if ($env:CLAUDEX_TEST_MODE -eq '1' -and $env:CLAUDEX_TEST_UPDATE_FIXTURE_DIR) {
+        Assert-AllowedUri $Uri
+        $leaf = [IO.Path]::GetFileName($Uri.AbsolutePath)
+        if ($leaf -eq 'latest') { $leaf = 'latest.json' }
+        $source = Join-Path $env:CLAUDEX_TEST_UPDATE_FIXTURE_DIR $leaf
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "update test fixture is missing $leaf" }
+        if ((Get-Item -LiteralPath $source).Length -gt $MaximumBytes) { throw "update download exceeds the $MaximumBytes byte limit" }
+        Copy-Item -LiteralPath $source -Destination $Destination -ErrorAction Stop
+        return
+    }
     Add-Type -AssemblyName System.Net.Http
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     $current = $Uri
@@ -588,6 +598,9 @@ function Invoke-ArchiveUpdate($Receipt, $Release) {
         $stagedRoot = Join-Path $stage $rootName
         $installer = Join-Path $stagedRoot 'install.ps1'
         if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw 'verified release archive does not contain install.ps1' }
+        if (-not (Test-Path -LiteralPath (Join-Path $stagedRoot 'skill-bridge.cjs') -PathType Leaf)) {
+            throw 'verified release archive does not contain skill-bridge.cjs'
+        }
         $children = @(Get-ChildItem -LiteralPath $stage -Force)
         if ($children.Count -ne 1 -or -not $children[0].PSIsContainer -or $children[0].Name -ne $rootName) {
             throw 'verified release archive has an unexpected top-level layout'
@@ -613,6 +626,7 @@ function Invoke-ArchiveUpdate($Receipt, $Release) {
             (Join-Path $script:ConfigDir 'usage-limit.ps1'),
             (Join-Path $script:ConfigDir 'codex-session.ps1'),
             (Join-Path $script:ConfigDir 'preload.cjs'),
+            (Join-Path $script:ConfigDir 'skill-bridge.cjs'),
             (Join-Path $script:ConfigDir 'self-update.ps1'),
             (Join-Path $script:ConfigDir 'skills\usage-limit\SKILL.md'),
             $script:ReceiptPath
@@ -630,10 +644,13 @@ function Invoke-ArchiveUpdate($Receipt, $Release) {
         }
         # The child inherits every caller-provided variable; these scoped
         # overrides merely select the installer's noninteractive update path.
+        # Archive updates remain barred from changing unrelated dependencies,
+        # but may install or upgrade Node for the newly required skill bridge.
         $updateEnvironment = @{
             CLAUDEX_INSTALL_METHOD = 'archive'
             CLAUDEX_BIN_DIR = $binDir
             CLAUDEX_SKIP_DEPENDENCY_INSTALL = '1'
+            CLAUDEX_ALLOW_NODE_INSTALL = '1'
             CLAUDEX_SKIP_SERVICE_START = '1'
             CLAUDEX_SKIP_CLAUDE_UPDATE = '1'
         }

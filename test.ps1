@@ -24,6 +24,13 @@ try {
     [IO.File]::WriteAllText((Join-Path $testAuthDir 'codex-test.json'), '{"type":"codex","access_token":"secret-access-token","refresh_token":"secret-refresh-token","account_id":"account-test","email":"private@example.com"}', $utf8)
     Copy-Item -LiteralPath (Join-Path $root 'settings.json') -Destination (Join-Path $testConfig 'settings.json')
     Copy-Item -LiteralPath (Join-Path $root 'preload.cjs') -Destination (Join-Path $testConfig 'preload.cjs')
+    Copy-Item -LiteralPath (Join-Path $root 'skill-bridge.cjs') -Destination (Join-Path $testConfig 'skill-bridge.cjs')
+    $existingClaudeSkill = Join-Path $testHome '.claude\skills\existing-claude'
+    $existingCodexSkill = Join-Path $testHome '.agents\skills\existing-codex'
+    [IO.Directory]::CreateDirectory($existingClaudeSkill) | Out-Null
+    [IO.Directory]::CreateDirectory($existingCodexSkill) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $existingClaudeSkill 'SKILL.md'), "---`nname: existing-claude`ndescription: Existing Claude test skill`n---`n`nClaude instructions.`n", $utf8)
+    [IO.File]::WriteAllText((Join-Path $existingCodexSkill 'SKILL.md'), "---`nname: existing-codex`ndescription: Existing Codex test skill`n---`n`nCodex instructions.`n", $utf8)
     Copy-Item -LiteralPath (Join-Path $root 'usage-limit.ps1') -Destination (Join-Path $testConfig 'usage-limit.ps1')
     Copy-Item -LiteralPath (Join-Path $root 'codex-session.ps1') -Destination (Join-Path $testConfig 'codex-session.ps1')
     [IO.File]::WriteAllText((Join-Path $testCodexDir 'auth.json'), '{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","last_refresh":"2026-07-15T01:00:00Z","tokens":{"access_token":"codex-source-access","refresh_token":"codex-source-refresh","id_token":"codex-source-id","account_id":"account-test"}}', $utf8)
@@ -64,7 +71,7 @@ public static class ClaudexTestCurl
         function global:claude {
             $firstArgument = if ($args) { [string] $args[0] } else { '' }
             if ($firstArgument -eq '--version') { Write-Output '2.1.210 (test)'; return }
-            if ($firstArgument -eq '--help') { Write-Output '--model --agents --append-system-prompt --permission-mode --settings --effort'; return }
+            if ($firstArgument -eq '--help') { Write-Output '--model --agents --append-system-prompt --permission-mode --settings --effort --add-dir --plugin-dir'; return }
             if ($firstArgument -eq 'auto-mode' -and $args.Count -gt 1 -and $args[1] -eq 'defaults') {
                 if ($env:FAKE_AUTO_MODE_DEFAULTS_FAIL -eq '1') { $global:LASTEXITCODE = 1; return }
                 if ($env:FAKE_AUTO_MODE_DEFAULT_VERSION -eq '2') {
@@ -177,7 +184,7 @@ if [ "${1:-}" = "--version" ]; then
   exit 0
 fi
 if [ "${1:-}" = "--help" ]; then
-  printf '%s\n' '--model --agents --append-system-prompt --permission-mode --settings --effort'
+  printf '%s\n' '--model --agents --append-system-prompt --permission-mode --settings --effort --add-dir --plugin-dir'
   exit 0
 fi
 if [ "${1:-}" = "auto-mode" ] && [ "${2:-}" = "defaults" ]; then
@@ -232,6 +239,26 @@ exit 1
     Remove-Item Env:CLAUDEX_PERMISSION_MODE -ErrorAction SilentlyContinue
     Remove-Item Env:CLAUDEX_AUTO_COMPACT_WINDOW -ErrorAction SilentlyContinue
     Remove-Item Env:CLAUDEX_MOUSE_POINTER_SHAPE -ErrorAction SilentlyContinue
+
+    if ($isWindowsPlatform) {
+        $oldNodeBin = Join-Path $temporary 'old-node-bin'
+        [IO.Directory]::CreateDirectory($oldNodeBin) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $oldNodeBin 'node.cmd'), "@echo off`r`nif `"%~1`"==`"--version`" (`r`n  echo v16.20.2`r`n  exit /b 0`r`n)`r`nexit /b 99`r`n", $utf8)
+        $savedPath = $env:PATH
+        $savedErrorPreference = $ErrorActionPreference
+        try {
+            $env:PATH = "$oldNodeBin$([IO.Path]::PathSeparator)$savedPath"
+            $ErrorActionPreference = 'Continue'
+            $shellPath = (Get-Process -Id $PID).Path
+            $oldNodeOutput = & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'claudex.ps1') skills 2>&1
+            $oldNodeExit = $LASTEXITCODE
+        } finally {
+            $env:PATH = $savedPath
+            $ErrorActionPreference = $savedErrorPreference
+        }
+        Assert-True ($oldNodeExit -eq 1) 'Node 16 is rejected before skill bridge startup'
+        Assert-True (($oldNodeOutput | Out-String).Contains('Node.js 18 or newer is required for skill compatibility (found Node.js 16)')) 'old Node diagnostic is actionable'
+    }
 
     $authRecoveryHelper = Join-Path $temporary 'auth-recovery-helper.ps1'
     [IO.File]::WriteAllText($authRecoveryHelper, @'
@@ -296,6 +323,10 @@ switch ($Action) {
     }) -Force
     [IO.File]::WriteAllText((Join-Path $testConfig 'settings.json'), ($seedSettings | ConvertTo-Json -Depth 100), $utf8)
 
+    $skillsOutput = (& (Join-Path $root 'claudex.ps1') skills | Out-String)
+    Assert-True ($skillsOutput.Contains('/existing-claude')) 'existing Claude skill discovered'
+    Assert-True ($skillsOutput.Contains('/existing-codex')) 'existing Codex skill discovered'
+
     $output = (& (Join-Path $root 'claudex.ps1') --terra test-prompt | Out-String)
     if (-not $output.Contains('AUTO=gpt-5.6-terra')) {
         $proxyRecoveryLog = Join-Path $testConfig 'logs\proxy-recovery.log'
@@ -320,6 +351,7 @@ switch ($Action) {
     Assert-True ($output.Contains('POWERSHELL_TOOL=1')) 'native PowerShell tool'
     Assert-True ($output.Contains('--permission-mode auto')) 'auto permissions'
     Assert-True ($output.Contains('--model gpt-5.6-terra')) 'startup model'
+    Assert-True ($output.Contains('--add-dir')) 'Claude and Codex skill overlay forwarded'
     Assert-True ($output.Contains('Do not create a team, spawn or delegate to additional agents')) 'nested agent guard'
     Assert-True ($output.Contains('Do not create, claim, or update entries in the shared task list')) 'subagent task ownership'
     Assert-True ($output.Contains('Before every final answer, call TaskList and reconcile every entry')) 'leader task reconciliation'
@@ -327,6 +359,7 @@ switch ($Action) {
     Assert-True ($output.Contains('operate as a Codex coding agent inside Claude Code')) 'Codex tuning guard'
     Assert-True ($output.Contains('Ask as few questions as possible')) 'low-question autonomy guard'
     Assert-True ($output.Contains('Never repeat a question the user already answered')) 'no-repeat question guard'
+    Assert-True ($output.Contains('claudex-codex-skill-references')) 'Codex skill reference compatibility plugin forwarded'
     Assert-True ($output.Contains('Do not call EnterPlanMode')) 'conservative plan mode guard'
     Assert-True ($output.Contains('"Terra (high)"')) 'Terra agent name includes its configured effort'
     Assert-True ($output.Contains('"Luna (medium)"')) 'Luna agent name includes its configured effort'
@@ -518,6 +551,7 @@ switch ($Action) {
 
     $bare = (& (Join-Path $root 'claudex.ps1') --bare --print test-prompt | Out-String)
     Assert-True (-not $bare.Contains('--agents')) 'bare mode custom agents suppressed'
+    Assert-True (-not $bare.Contains('--add-dir')) 'bare mode skill bridge suppressed'
     Assert-True (-not $bare.Contains('--append-system-prompt')) 'bare mode leader prompt suppressed'
     Assert-True (-not $bare.Contains('--permission-mode')) 'bare mode permission override suppressed'
 
@@ -718,6 +752,12 @@ switch ($Action) {
 
     & node (Join-Path $root 'scripts\check-preload.mjs')
     Assert-True ($LASTEXITCODE -eq 0) 'preload terminal regressions'
+    & node (Join-Path $root 'tests\skill-bridge.test.cjs')
+    Assert-True ($LASTEXITCODE -eq 0) 'skill bridge regressions'
+    & node (Join-Path $root 'tests\skill-contract.test.cjs')
+    Assert-True ($LASTEXITCODE -eq 0) 'skill contract regressions'
+    & node (Join-Path $root 'tests\skill-security.test.cjs')
+    Assert-True ($LASTEXITCODE -eq 0) 'skill security regressions'
     $env:CLAUDEX_TEST_TTY_INPUT = '1'
     $inputAlias = & node -e 'const p=require(process.argv[1]);process.stdout.write(Buffer.from(p.rewriteSolplanInput(process.argv[2]+String.fromCharCode(13))).toString(process.argv[3]))' (Join-Path $root 'preload.cjs') '/model solplan' hex
     Remove-Item Env:CLAUDEX_TEST_TTY_INPUT
@@ -732,6 +772,12 @@ switch ($Action) {
     Assert-True (-not $installScriptSource.Contains('--prefix $script:codexInstalledBinDir')) 'Codex install never exposes a scoped variable to npm.ps1 evaluation'
     Assert-True ($installScriptSource.Contains("`$claudeInstalledBinDir = Join-Path `$env:USERPROFILE '.local\bin'")) 'Claude installer discovers its first-run bin directory'
     Assert-True ($installScriptSource.Contains('@($codexInstalledBinDir, $claudeInstalledBinDir,')) 'Claude installer persists its first-run bin directory'
+    Assert-True ($installScriptSource.Contains('function Get-NodeMajorVersion')) 'Windows installer parses the active Node major version'
+    Assert-True ($installScriptSource.Contains('$nodeMajor -lt 18 -and $allowNodeMigration')) 'Windows installer upgrades Node below the supported minimum'
+    Assert-True ($installScriptSource.Contains("`$env:CLAUDEX_ALLOW_NODE_INSTALL -eq '1'")) 'archive migration can authorize only the required Node installation'
+    $selfUpdateScriptSource = Get-Content -LiteralPath (Join-Path $root 'self-update.ps1') -Raw
+    Assert-True ($selfUpdateScriptSource.Contains("CLAUDEX_ALLOW_NODE_INSTALL = '1'")) 'archive updater authorizes the Node dependency migration'
+    Assert-True ($selfUpdateScriptSource.Contains("CLAUDEX_SKIP_DEPENDENCY_INSTALL = '1'")) 'archive updater still blocks unrelated dependency changes'
 
     $installHome = Join-Path $temporary 'install home'
     [IO.Directory]::CreateDirectory((Join-Path $installHome '.codex')) | Out-Null
@@ -752,6 +798,10 @@ switch ($Action) {
     Assert-True (Test-Path -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'self-update.ps1') -PathType Leaf) 'self-update helper installed'
     Assert-True (Test-Path -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'install.json') -PathType Leaf) 'install receipt written'
     Assert-True (Test-Path -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'skills\usage-limit\SKILL.md') -PathType Leaf) 'usage skill installed'
+    Assert-True (Test-Path -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'skill-bridge.cjs') -PathType Leaf) 'skill bridge installed'
+    $installedUsageSkill = Get-Content -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'skills\usage-limit\SKILL.md') -Raw
+    Assert-True ($installedUsageSkill.Contains('shell: powershell')) 'Windows usage skill selects PowerShell'
+    Assert-True ($installedUsageSkill.Contains('allowed-tools: PowerShell(')) 'Windows usage skill grants only PowerShell helper invocation'
     $installedSettings = Get-Content -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'settings.json') -Raw | ConvertFrom-Json
     Assert-True ($installedSettings.statusLine.command.Contains('powershell.exe')) 'Windows status command'
     Assert-True ($installedSettings.tui -eq 'fullscreen') 'fullscreen TUI'
@@ -767,6 +817,88 @@ switch ($Action) {
     $selfUpdateStatus = (& (Join-Path $root 'claudex.ps1') self-update --status | Out-String)
     Assert-True ($selfUpdateStatus.Contains("Installed version: $($packageManifest.version)")) 'self-update status dispatch'
     Assert-True ($selfUpdateStatus.Contains('Install method: archive')) 'self-update normalizes source installs to archive provenance'
+
+    if ($isWindowsPlatform) {
+        function New-ArchiveUpdateFixture([string] $Fixture, [string] $Version, [string] $Mode, [bool] $BadChecksum = $false) {
+            Remove-Item -LiteralPath $Fixture -Recurse -Force -ErrorAction SilentlyContinue
+            [IO.Directory]::CreateDirectory($Fixture) | Out-Null
+            $source = Join-Path $Fixture 'source'
+            $releaseRoot = Join-Path $source "claudex-$Version"
+            [IO.Directory]::CreateDirectory($releaseRoot) | Out-Null
+            [IO.File]::WriteAllText((Join-Path $releaseRoot 'package.json'), "{`"version`":`"$Version`"}`n", $utf8)
+            if ($Mode -ne 'missing-bridge') {
+                [IO.File]::WriteAllText((Join-Path $releaseRoot 'skill-bridge.cjs'), "'use strict';`n", $utf8)
+            }
+            $installerMode = $Mode
+            $installer = @"
+`$ErrorActionPreference = 'Stop'
+`$config = `$env:CLAUDEX_CONFIG_DIR
+[IO.Directory]::CreateDirectory(`$config) | Out-Null
+[IO.File]::WriteAllText((Join-Path `$config 'skill-bridge.cjs'), 'fixture bridge $Version')
+if ('$installerMode' -eq 'rollback') { exit 23 }
+[IO.File]::WriteAllText((Join-Path `$config 'node-migration.txt'), "`$(`$env:CLAUDEX_SKIP_DEPENDENCY_INSTALL):`$(`$env:CLAUDEX_ALLOW_NODE_INSTALL)")
+`$receipt = [ordered]@{ schema = 1; version = '$Version'; method = 'archive'; binDir = `$env:CLAUDEX_BIN_DIR; repository = 'BeamoINT/Claudex' }
+[IO.File]::WriteAllText((Join-Path `$config 'install.json'), ((`$receipt | ConvertTo-Json -Compress) + "`n"))
+"@
+            [IO.File]::WriteAllText((Join-Path $releaseRoot 'install.ps1'), $installer, $utf8)
+            $zipName = "claudex-$Version-windows.zip"
+            $zip = Join-Path $Fixture $zipName
+            Compress-Archive -LiteralPath $releaseRoot -DestinationPath $zip
+            $digest = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($BadChecksum) { $digest = ('0' * 64) }
+            [IO.File]::WriteAllText((Join-Path $Fixture 'SHA256SUMS'), "$digest  $zipName`n", $utf8)
+            $release = [ordered]@{
+                tag_name = "v$Version"; draft = $false; prerelease = $false; published_at = '2026-07-16T00:00:00Z'
+                assets = @(
+                    [ordered]@{ name = $zipName; url = "https://api.github.com/assets/$zipName" },
+                    [ordered]@{ name = 'SHA256SUMS'; url = 'https://api.github.com/assets/SHA256SUMS' }
+                )
+            }
+            [IO.File]::WriteAllText((Join-Path $Fixture 'latest.json'), (($release | ConvertTo-Json -Depth 10) + "`n"), $utf8)
+        }
+
+        function Invoke-ArchiveUpdateFixture([string] $Fixture) {
+            $savedPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                $shellPath = (Get-Process -Id $PID).Path
+                $output = & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'self-update.ps1') -Apply 2>&1
+                return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output | Out-String) }
+            } finally { $ErrorActionPreference = $savedPreference }
+        }
+
+        $fixture = Join-Path $temporary 'windows-update-fixture'
+        $oldFixtureMode = $env:CLAUDEX_TEST_MODE
+        $oldFixtureDirectory = $env:CLAUDEX_TEST_UPDATE_FIXTURE_DIR
+        $env:CLAUDEX_TEST_MODE = '1'
+        $env:CLAUDEX_TEST_UPDATE_FIXTURE_DIR = $fixture
+        try {
+            $originalBridge = Get-Content -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'skill-bridge.cjs') -Raw
+
+            New-ArchiveUpdateFixture $fixture '9.9.6' 'success' $true
+            $badChecksum = Invoke-ArchiveUpdateFixture $fixture
+            Assert-True ($badChecksum.ExitCode -eq 1 -and $badChecksum.Output.Contains('checksum mismatch')) 'Windows archive updater rejects checksum mismatch'
+            Assert-True ((Get-Content -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'skill-bridge.cjs') -Raw) -eq $originalBridge) 'checksum failure leaves skill bridge unchanged'
+
+            New-ArchiveUpdateFixture $fixture '9.9.7' 'missing-bridge'
+            $missingBridge = Invoke-ArchiveUpdateFixture $fixture
+            Assert-True ($missingBridge.ExitCode -eq 1 -and $missingBridge.Output.Contains('does not contain skill-bridge.cjs')) 'Windows archive updater rejects a missing bridge'
+
+            New-ArchiveUpdateFixture $fixture '9.9.8' 'rollback'
+            $rollback = Invoke-ArchiveUpdateFixture $fixture
+            Assert-True ($rollback.ExitCode -eq 1 -and $rollback.Output.Contains('restored the previous managed installation')) 'Windows archive updater reports rollback'
+            Assert-True ((Get-Content -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'skill-bridge.cjs') -Raw) -eq $originalBridge) 'Windows rollback restores the prior bridge'
+
+            New-ArchiveUpdateFixture $fixture '9.9.9' 'success'
+            $success = Invoke-ArchiveUpdateFixture $fixture
+            Assert-True ($success.ExitCode -eq 0) "Windows archive updater applies a verified release: $($success.Output)"
+            Assert-True ((Get-Content -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'node-migration.txt') -Raw) -eq '1:1') 'Windows archive updater authorizes only the Node migration path'
+            Assert-True ((Get-Content -LiteralPath (Join-Path $env:CLAUDEX_CONFIG_DIR 'install.json') -Raw).Contains('9.9.9')) 'Windows archive updater validates the applied receipt'
+        } finally {
+            if ($null -eq $oldFixtureMode) { Remove-Item Env:CLAUDEX_TEST_MODE -ErrorAction SilentlyContinue } else { $env:CLAUDEX_TEST_MODE = $oldFixtureMode }
+            if ($null -eq $oldFixtureDirectory) { Remove-Item Env:CLAUDEX_TEST_UPDATE_FIXTURE_DIR -ErrorAction SilentlyContinue } else { $env:CLAUDEX_TEST_UPDATE_FIXTURE_DIR = $oldFixtureDirectory }
+        }
+    }
 
     & node (Join-Path $root 'scripts\check-docs.mjs')
     Assert-True ($LASTEXITCODE -eq 0) 'community and documentation checks'

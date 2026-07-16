@@ -22,7 +22,11 @@ jobs:
           npm test
           ./scripts/build-release.sh "${RELEASE_TAG#v}"
           tar -tzf "dist/claudex-${RELEASE_TAG#v}.tar.gz" | grep -Fx "claudex-${RELEASE_TAG#v}/install.sh"
+          tar -tzf "dist/claudex-${RELEASE_TAG#v}.tar.gz" | grep -Fx "claudex-${RELEASE_TAG#v}/skill-bridge.cjs"
+          tar -tzf "dist/claudex-${RELEASE_TAG#v}.tar.gz" | grep -Fx "claudex-${RELEASE_TAG#v}/skills/usage-limit/SKILL.md"
           unzip -Z1 "dist/claudex-${RELEASE_TAG#v}-windows.zip" | grep -Fx "claudex-${RELEASE_TAG#v}/install.ps1"
+          unzip -Z1 "dist/claudex-${RELEASE_TAG#v}-windows.zip" | grep -Fx "claudex-${RELEASE_TAG#v}/skill-bridge.cjs"
+          unzip -Z1 "dist/claudex-${RELEASE_TAG#v}-windows.zip" | grep -Fx "claudex-${RELEASE_TAG#v}/skills/usage-limit/SKILL.windows.md"
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}

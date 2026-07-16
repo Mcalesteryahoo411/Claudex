@@ -15,7 +15,9 @@ model endpoints.
 | Supported account access | The signed-in Codex account must advertise the configured models |
 
 The Unix installer also needs `curl`, `tar`, and a supported package manager if
-`jq`, Node.js, or npm is missing. The Windows installer uses built-in PowerShell
+`jq`, Node.js, or npm is missing. On legacy Linux distributions whose stock
+repository is below Node.js 18, it installs a checksum-verified official Node.js
+22 LTS runtime under the private Claudex config directory. The Windows installer uses built-in PowerShell
 download and archive commands and can install Node.js through WinGet,
 Chocolatey, or Scoop. Codex CLI is installed from OpenAI's official
 `@openai/codex` npm package.
@@ -38,7 +40,7 @@ irm https://claudex.work/install.ps1 | iex
 
 The website bootstrap verifies the latest stable GitHub release before running
 its native installer. For package-managed installation, see
-[package-managers.md](package-managers.md) for Homebrew, npm, Scoop, and WinGet
+[package-managers.md](package-managers.md) for Homebrew, Scoop, and WinGet
 commands. Package installs configure themselves on first use and refresh the
 managed launcher after upgrades.
 

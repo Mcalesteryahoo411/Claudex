@@ -5,6 +5,38 @@ uses [Semantic Versioning](https://semver.org/) for tagged releases.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-16
+
+### Added
+
+- Added automatic, non-destructive compatibility for existing Claude Code and
+  Codex skills: personal and project roots, legacy Claude commands and Codex
+  homes, admin skills, enabled plugins, support assets, disabled-skill policy,
+  deterministic collision aliases, and `/skill` plus `$skill` references.
+- Added `claudex skills` diagnostics and a shared content-addressed bridge used
+  identically by the Bash and PowerShell launchers.
+- Added isolated plugin adapters that preserve plugin namespaces without
+  activating source hooks, MCP servers, agents, or other plugin runtime code;
+  skills-directory plugins and direct legacy plugin commands are adapted into
+  inert namespaced skills.
+
+### Changed
+
+- Remap explicit Claude skill model-family pins to Sol, Terra, or Luna so
+  imported skills, including `[1m]` selectors, remain on Codex/OpenAI models.
+- Preserve Claude's four `skillOverrides` visibility states and plugin
+  `defaultEnabled` policy in the isolated compatibility view.
+- Install a native PowerShell version of `/usage-limit` on Windows while
+  retaining the Bash version on macOS, Linux, and WSL.
+- Require Node.js 18 or newer for the shared skill runtime, with automatic,
+  rollback-safe dependency migration for existing archive installations.
+
+### Security
+
+- Snapshot imported skills into bounded immutable generations, reject escaping
+  links, special files, credentials, and private-key material, and fall back to
+  the last known-good generation if a concurrent source refresh cannot finish.
+
 ## [1.4.5] - 2026-07-15
 
 ### Fixed
@@ -228,7 +260,8 @@ uses [Semantic Versioning](https://semver.org/) for tagged releases.
 - Claude in Chrome first-party profile support.
 - Cross-platform regression coverage in GitHub Actions.
 
-[Unreleased]: https://github.com/BeamoINT/Claudex/compare/v1.4.5...HEAD
+[Unreleased]: https://github.com/BeamoINT/Claudex/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/BeamoINT/Claudex/compare/v1.4.5...v1.5.0
 [1.4.5]: https://github.com/BeamoINT/Claudex/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/BeamoINT/Claudex/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/BeamoINT/Claudex/compare/v1.4.2...v1.4.3
