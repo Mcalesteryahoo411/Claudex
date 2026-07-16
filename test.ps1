@@ -1013,17 +1013,19 @@ process.stdout.write(JSON.stringify({
             -RedirectStandardOutput $watcherOutputLog -RedirectStandardError $watcherStandardErrorLog
         try {
             foreach ($attempt in 1..100) {
-                if (Test-Path -LiteralPath $proxyReady -PathType Leaf) { break }
+                if ((Test-Path -LiteralPath $proxyReady -PathType Leaf) -and
+                    (Test-Path -LiteralPath $proxyStartLog -PathType Leaf)) { break }
                 Start-Sleep -Milliseconds 100
             }
-            if (-not (Test-Path -LiteralPath $proxyReady -PathType Leaf)) {
+            if (-not (Test-Path -LiteralPath $proxyReady -PathType Leaf) -or
+                -not (Test-Path -LiteralPath $proxyStartLog -PathType Leaf)) {
                 $watcher.Refresh()
                 $watchErrors = if (Test-Path -LiteralPath $watcherErrorLog) { Get-Content -LiteralPath $watcherErrorLog -Raw } else { '' }
                 if ($watcher.HasExited) { $watcher.WaitForExit() }
                 $watcherOutput = if (Test-Path -LiteralPath $watcherOutputLog) { Get-Content -LiteralPath $watcherOutputLog -Raw } else { '' }
                 $watcherStandardError = if (Test-Path -LiteralPath $watcherStandardErrorLog) { Get-Content -LiteralPath $watcherStandardErrorLog -Raw } else { '' }
                 $dummyParent.Refresh()
-                throw "assertion failed: Windows proxy watcher recovered a refused connection; watcherExited=$($watcher.HasExited); parentExited=$($dummyParent.HasExited); watcherErrors=$watchErrors; stdout=$watcherOutput; stderr=$watcherStandardError"
+                throw "assertion failed: Windows proxy watcher completed startup; ready=$(Test-Path -LiteralPath $proxyReady -PathType Leaf); startLog=$(Test-Path -LiteralPath $proxyStartLog -PathType Leaf); watcherExited=$($watcher.HasExited); parentExited=$($dummyParent.HasExited); watcherErrors=$watchErrors; stdout=$watcherOutput; stderr=$watcherStandardError"
             }
             Start-Sleep -Milliseconds 300
             $watcher.Refresh()
