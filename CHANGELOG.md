@@ -5,6 +5,15 @@ uses [Semantic Versioning](https://semver.org/) for tagged releases.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-15
+
+### Fixed
+
+- Fixed a fresh Windows install failure caused by npm's PowerShell shim
+  re-evaluating a strict-mode scoped prefix instead of receiving its value.
+- Added clean-runner verification for the public macOS, Linux, and Windows
+  website installers.
+
 ## [1.4.0] - 2026-07-15
 
 ### Added
@@ -179,7 +188,8 @@ uses [Semantic Versioning](https://semver.org/) for tagged releases.
 - Claude in Chrome first-party profile support.
 - Cross-platform regression coverage in GitHub Actions.
 
-[Unreleased]: https://github.com/BeamoINT/Claudex/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/BeamoINT/Claudex/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/BeamoINT/Claudex/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/BeamoINT/Claudex/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/BeamoINT/Claudex/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/BeamoINT/Claudex/compare/v1.2.0...v1.3.0

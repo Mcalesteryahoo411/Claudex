@@ -66,14 +66,19 @@ function Install-NodeAndNpm {
 
 function Install-CodexCli {
     if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command npm -ErrorAction SilentlyContinue)) { Install-NodeAndNpm }
-    $npm = Get-Command npm -ErrorAction SilentlyContinue
+    # Prefer the native command shim. npm.ps1 reconstructs its arguments with
+    # Invoke-Expression and can re-evaluate scope-qualified variables under
+    # StrictMode instead of receiving their value.
+    $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
     if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not $npm) {
         Fail 'Node.js or npm was installed but is not available in PATH; open a new terminal and rerun the installer'
     }
     [Console]::WriteLine('Installing Codex CLI from the official @openai/codex npm package...')
-    $script:codexInstalledBinDir = Join-Path $env:USERPROFILE '.local\bin'
-    [IO.Directory]::CreateDirectory($script:codexInstalledBinDir) | Out-Null
-    & $npm.Source install --global --prefix $script:codexInstalledBinDir '@openai/codex'
+    $installPrefix = Join-Path $env:USERPROFILE '.local\bin'
+    $script:codexInstalledBinDir = $installPrefix
+    [IO.Directory]::CreateDirectory($installPrefix) | Out-Null
+    & $npm.Source install --global --prefix $installPrefix '@openai/codex'
     if ($LASTEXITCODE -ne 0) { Fail "Codex CLI installation failed with exit code $LASTEXITCODE" }
     if ($script:codexInstalledBinDir -notin @($env:PATH -split [regex]::Escape([string] [IO.Path]::PathSeparator))) {
         $env:PATH = "$($script:codexInstalledBinDir)$([IO.Path]::PathSeparator)$env:PATH"

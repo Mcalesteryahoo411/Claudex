@@ -717,6 +717,9 @@ switch ($Action) {
     Assert-True ($packageVersion -eq $packageManifest.version) 'package-manager wrapper version'
 
     $installScriptSource = Get-Content -LiteralPath (Join-Path $root 'install.ps1') -Raw
+    Assert-True ($installScriptSource.Contains('Get-Command npm.cmd')) 'Codex install prefers the native npm command shim'
+    Assert-True ($installScriptSource.Contains('--prefix $installPrefix')) 'Codex install passes a concrete local prefix to npm'
+    Assert-True (-not $installScriptSource.Contains('--prefix $script:codexInstalledBinDir')) 'Codex install never exposes a scoped variable to npm.ps1 evaluation'
     Assert-True ($installScriptSource.Contains("`$claudeInstalledBinDir = Join-Path `$env:USERPROFILE '.local\bin'")) 'Claude installer discovers its first-run bin directory'
     Assert-True ($installScriptSource.Contains('@($codexInstalledBinDir, $claudeInstalledBinDir,')) 'Claude installer persists its first-run bin directory'
 
@@ -752,7 +755,7 @@ switch ($Action) {
     Assert-True ($installedProxyConfig.Contains('transient-error-cooldown-seconds: 1')) 'proxy transient cooldown stays bounded'
     Assert-True ($installedProxyConfig.Contains('bootstrap-retries: 2')) 'proxy retries pre-stream failures'
     $selfUpdateStatus = (& (Join-Path $root 'claudex.ps1') self-update --status | Out-String)
-    Assert-True ($selfUpdateStatus.Contains('Installed version: 1.4.0')) 'self-update status dispatch'
+    Assert-True ($selfUpdateStatus.Contains('Installed version: 1.4.1')) 'self-update status dispatch'
     Assert-True ($selfUpdateStatus.Contains('Install method: git')) 'self-update install provenance'
 
     & node (Join-Path $root 'scripts\check-docs.mjs')
