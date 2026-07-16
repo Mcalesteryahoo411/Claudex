@@ -11,7 +11,7 @@ readonly fake_bin="$temporary/bin"
 mkdir -p "$config" "$fixtures" "$fake_bin"
 
 cat > "$config/install.json" <<'EOF'
-{"schema":1,"version":"1.3.1","method":"npm","binDir":"/tmp/unused","repository":"BeamoINT/Claudex"}
+{"schema":1,"version":"1.3.1","method":"homebrew","binDir":"/tmp/unused","repository":"BeamoINT/Claudex"}
 EOF
 cat > "$fixtures/release.json" <<'EOF'
 {"tag_name":"v1.3.2","draft":false,"prerelease":false}
@@ -35,9 +35,9 @@ case "$url" in
 esac
 printf '%s' "$url"
 EOF
-cat > "$fake_bin/npm" <<'EOF'
+cat > "$fake_bin/brew" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$*" >> "$FAKE_NPM_LOG"
+printf '%s\n' "$*" >> "$FAKE_BREW_LOG"
 EOF
 cat > "$fake_bin/claudex" <<'EOF'
 #!/usr/bin/env bash
@@ -52,10 +52,10 @@ case "${1:-}" in
   *) exit 2 ;;
 esac
 EOF
-chmod +x "$fake_bin/curl" "$fake_bin/npm" "$fake_bin/claudex"
+chmod +x "$fake_bin/curl" "$fake_bin/brew" "$fake_bin/claudex"
 
 export HOME="$home" PATH="$fake_bin:$PATH" CLAUDEX_CONFIG_DIR="$config" CLAUDEX_CURL_BIN="$fake_bin/curl"
-export FAKE_FIXTURES="$fixtures" FAKE_NPM_LOG="$temporary/npm.log"
+export FAKE_FIXTURES="$fixtures" FAKE_BREW_LOG="$temporary/brew.log"
 
 check_output=$("$root/self-update" --check)
 [[ "$check_output" == *'Claudex 1.3.2 is available'* ]]
@@ -63,22 +63,22 @@ jq -e '.currentVersion == "1.3.1" and .availableVersion == "1.3.2" and .failureC
   "$config/update/claudex/state.json" >/dev/null
 
 status_output=$("$root/self-update" --status)
-[[ "$status_output" == *'Claudex: 1.3.1'* && "$status_output" == *'Install method: npm'* && "$status_output" == *'Available: 1.3.2'* ]]
+[[ "$status_output" == *'Claudex: 1.3.1'* && "$status_output" == *'Install method: homebrew'* && "$status_output" == *'Available: 1.3.2'* ]]
 
 # A contending updater must not fall through and apply cached state without
 # owning the update lock.
 mkdir -p "$config/update/claudex/lock"
 printf '%s\n' "$$" > "$config/update/claudex/lock/owner"
 before_manager_calls=0
-[[ ! -r "$temporary/npm.log" ]] || before_manager_calls=$(wc -l < "$temporary/npm.log" | tr -d ' ')
+[[ ! -r "$temporary/brew.log" ]] || before_manager_calls=$(wc -l < "$temporary/brew.log" | tr -d ' ')
 "$root/self-update" --apply >/dev/null
 after_manager_calls=0
-[[ ! -r "$temporary/npm.log" ]] || after_manager_calls=$(wc -l < "$temporary/npm.log" | tr -d ' ')
+[[ ! -r "$temporary/brew.log" ]] || after_manager_calls=$(wc -l < "$temporary/brew.log" | tr -d ' ')
 [[ "$after_manager_calls" == "$before_manager_calls" ]]
 rm -rf "$config/update/claudex/lock"
 
 "$root/self-update" --apply >/dev/null
-grep -Fx 'install --global claudex-codex@1.3.2' "$temporary/npm.log" >/dev/null
+grep -Fx 'upgrade beamoint/tap/claudex' "$temporary/brew.log" >/dev/null
 
 # A prerelease is never accepted on the stable channel.
 cat > "$fixtures/release.json" <<'EOF'

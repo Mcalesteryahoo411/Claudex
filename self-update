@@ -64,7 +64,7 @@ version_is_newer() {
 }
 
 parse_semver "$current" || fail "install receipt has an invalid stable version: $current"
-case "$method" in npm|homebrew|scoop|winget|archive|git) ;; *) fail "unsupported install method in receipt: $method" ;; esac
+case "$method" in homebrew|scoop|winget|archive|git) ;; *) fail "unsupported install method in receipt: $method" ;; esac
 [[ "$receipt_repository" == "$repository" ]] || fail 'install receipt names an untrusted release repository'
 [[ "$bin_dir" == /* ]] || fail 'install receipt has an invalid launcher directory'
 
@@ -174,10 +174,6 @@ state_available() {
 apply_manager_update() {
   local installed_version manager_wrapper="" candidate
   case "$method" in
-    npm)
-      command -v npm >/dev/null 2>&1 || fail 'npm is not available; run: npm install --global claudex-codex@latest'
-      npm install --global "claudex-codex@$latest"
-      ;;
     homebrew)
       command -v brew >/dev/null 2>&1 || fail 'Homebrew is not available; run: brew upgrade claudex'
       brew upgrade beamoint/tap/claudex
@@ -318,7 +314,7 @@ case "$action" in
     fi
     state_available || { say "Claudex $current is up to date."; exit 0; }
     case "$method" in
-      npm|homebrew|scoop|winget) apply_manager_update ;;
+      homebrew|scoop|winget) apply_manager_update ;;
       archive|git) apply_archive_update ;;
     esac
     applied="$latest"; current="$latest"

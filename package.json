@@ -1,13 +1,9 @@
 {
   "name": "claudex-codex",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Cross-platform compatibility layer for using Codex GPT models in Claude Code",
   "type": "module",
-  "bin": {
-    "claudex": "bin/claudex-package.mjs"
-  },
   "files": [
-    "bin/",
     "docs/",
     "skills/",
     "CHANGELOG.md",
@@ -24,7 +20,6 @@
     "claudex",
     "claudex.cmd",
     "claudex.ps1",
-    "claudex-package.cmd",
     "codex-session",
     "codex-session.ps1",
     "env.example",
@@ -42,12 +37,10 @@
   ],
   "scripts": {
     "check:docs": "node scripts/check-docs.mjs",
-    "check:package": "node scripts/check-package.mjs",
     "check:preload": "node scripts/check-preload.mjs",
-    "test": "npm run check:docs && npm run check:package && npm run check:preload",
+    "test": "npm run check:docs && npm run check:preload",
     "test:all": "bash ./test.sh",
-    "build:release": "bash ./scripts/build-release.sh",
-    "prepublishOnly": "npm test"
+    "build:release": "bash ./scripts/build-release.sh"
   },
   "engines": {
     "node": ">=18"
@@ -70,8 +63,5 @@
     "url": "https://github.com/BeamoINT/Claudex/issues"
   },
   "homepage": "https://github.com/BeamoINT/Claudex#readme",
-  "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  }
+  "license": "MIT"
 }

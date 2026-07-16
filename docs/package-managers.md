@@ -22,24 +22,6 @@ claudex --login
 Upgrade with `brew upgrade claudex`. The updated package refreshes the managed
 Claudex files automatically on the next launch.
 
-## npm
-
-The unscoped name `claudex` belongs to an unrelated npm project, so this
-project is published as `claudex-codex` while retaining the `claudex` command:
-
-```bash
-npm install --global claudex-codex
-claudex --login
-```
-
-For a one-shot installation and launch:
-
-```bash
-npx claudex-codex --login
-```
-
-Upgrade with `npm install --global claudex-codex@latest`.
-
 ## Scoop on Windows
 
 ```powershell
@@ -88,8 +70,8 @@ is retained and the normal manual upgrade command above remains available.
 
 ## Uninstall
 
-Remove the package with `brew uninstall claudex`,
-`npm uninstall --global claudex-codex`, or `scoop uninstall claudex`.
+Remove the package with `brew uninstall claudex` or
+`scoop uninstall claudex`.
 Package managers intentionally leave `~/.config/claudex` in place so an
 uninstall cannot destroy private settings or session state unexpectedly. After
 closing all Claudex sessions, remove that directory manually if the data is no

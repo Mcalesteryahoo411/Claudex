@@ -36,7 +36,6 @@ when you want to inspect the bootstrap before running it.
 
 ```bash
 brew install BeamoINT/tap/claudex       # macOS or Linux
-npm install --global claudex-codex      # macOS, Linux, or Windows
 ```
 
 Windows users can also install from the BeamoINT Scoop bucket:

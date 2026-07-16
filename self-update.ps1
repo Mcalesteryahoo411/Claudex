@@ -262,7 +262,6 @@ function Get-ReceiptManager($Receipt) {
     }
     if ($null -eq $candidate) { throw 'installation receipt does not contain an install method' }
     switch -Regex (([string]$candidate).Trim().ToLowerInvariant()) {
-        '^(npm|node|nodejs)$' { return 'npm' }
         '^(brew|homebrew)$' { return 'homebrew' }
         '^scoop$' { return 'scoop' }
         '^(winget|windows-package-manager)$' { return 'winget' }
@@ -534,15 +533,6 @@ function Get-ManagerPackage($Receipt, [string] $Default) {
 
 function Invoke-ManagerUpdate([string] $Manager, $Receipt, $Release) {
     switch ($Manager) {
-        'npm' {
-            $command = Get-NativeCommand @('npm.cmd', 'npm.exe', 'npm')
-            $scriptCommand = if (-not $command) { Get-PowerShellScriptCommand 'npm' } else { $null }
-            if (-not $command -and -not $scriptCommand) { throw 'npm-managed install cannot update because npm is not in PATH' }
-            $package = Get-ManagerPackage $Receipt 'claudex-codex'
-            $arguments = @('install', '--global', "$package@$($Release.Version.Text)", '--no-audit', '--no-fund')
-            if ($command) { Invoke-BoundedProcess $command $arguments 600 }
-            else { Invoke-PackageWrapper $scriptCommand $arguments }
-        }
         'homebrew' {
             $command = Get-NativeCommand @('brew.exe', 'brew')
             if (-not $command) { throw 'Homebrew-managed install cannot update because brew is not in PATH' }
@@ -729,7 +719,7 @@ function Invoke-Apply {
                 return
             }
             $manager = Get-ReceiptManager $receipt
-            if ($manager -in @('npm', 'homebrew', 'scoop', 'winget')) {
+            if ($manager -in @('homebrew', 'scoop', 'winget')) {
                 Invoke-ManagerUpdate $manager $receipt $release
             } else {
                 Invoke-ArchiveUpdate $receipt $release

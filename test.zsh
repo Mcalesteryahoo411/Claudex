@@ -188,7 +188,6 @@ bash -n "$root/bootstrap.sh"
 sh -n "$root/install.zsh"
 node --check "$root/preload.cjs"
 node --check "$root/bin/claudex-package.mjs"
-node "$root/scripts/check-package.mjs"
 
 auth_recovery_log="$tmp/auth-recovery.log"
 auth_recovery_marker="$tmp/auth-recovery.marker"
@@ -788,16 +787,16 @@ package_home="$tmp/package home"
 mkdir -p "$package_home/.codex"
 cp "$tmp/home/.codex/auth.json" "$package_home/.codex/auth.json"
 package_setup_output=$(HOME="$package_home" PATH="$tmp/bin:$PATH" \
-  CLAUDEX_PROXY_TOKEN='package-test-token' CLAUDEX_SKIP_DEPENDENCY_INSTALL=1 \
+  CLAUDEX_INSTALL_METHOD=homebrew CLAUDEX_PROXY_TOKEN='package-test-token' CLAUDEX_SKIP_DEPENDENCY_INSTALL=1 \
   CLAUDEX_SKIP_SERVICE_START=1 CLAUDEX_SKIP_AUTO_UPDATE=1 node "$root/bin/claudex-package.mjs" --package-setup)
 [[ "$package_setup_output" != *'Add this directory to PATH:'* ]]
 jq -e --arg version "$(node -p "require('$root/package.json').version")" \
-  '.package == "claudex-codex" and .version == $version and .method == "npm"' \
+  '.package == "claudex-codex" and .version == $version and .method == "homebrew"' \
   "$package_home/.config/claudex/package-manager.json" >/dev/null
 [[ -x "$package_home/.config/claudex/package-bin/claudex" ]]
 rm -f "$package_home/.config/claudex/preload.cjs"
 HOME="$package_home" PATH="$tmp/bin:$PATH" \
-  CLAUDEX_PROXY_TOKEN='package-test-token' CLAUDEX_SKIP_DEPENDENCY_INSTALL=1 \
+  CLAUDEX_INSTALL_METHOD=homebrew CLAUDEX_PROXY_TOKEN='package-test-token' CLAUDEX_SKIP_DEPENDENCY_INSTALL=1 \
   CLAUDEX_SKIP_SERVICE_START=1 CLAUDEX_SKIP_AUTO_UPDATE=1 node "$root/bin/claudex-package.mjs" --version >/dev/null
 [[ -r "$package_home/.config/claudex/preload.cjs" ]]
 
@@ -807,7 +806,7 @@ mkdir -p "$package_conflict_home/.codex" "$package_conflict_bin"
 cp "$tmp/home/.codex/auth.json" "$package_conflict_home/.codex/auth.json"
 ln -s "$root/bin/claudex-package.mjs" "$package_conflict_bin/claudex"
 HOME="$package_conflict_home" PATH="$tmp/bin:$PATH" CLAUDEX_BIN_DIR="$package_conflict_bin" \
-  CLAUDEX_PROXY_TOKEN='package-conflict-token' CLAUDEX_SKIP_DEPENDENCY_INSTALL=1 \
+  CLAUDEX_INSTALL_METHOD=homebrew CLAUDEX_PROXY_TOKEN='package-conflict-token' CLAUDEX_SKIP_DEPENDENCY_INSTALL=1 \
   CLAUDEX_SKIP_SERVICE_START=1 CLAUDEX_SKIP_AUTO_UPDATE=1 node "$root/bin/claudex-package.mjs" --package-setup >/dev/null
 [[ "$(readlink "$package_conflict_bin/claudex")" == "$root/bin/claudex-package.mjs" ]]
 [[ -x "$package_conflict_home/.config/claudex/package-bin/claudex" ]]

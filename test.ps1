@@ -760,8 +760,6 @@ switch ($Action) {
 
     & node (Join-Path $root 'scripts\check-docs.mjs')
     Assert-True ($LASTEXITCODE -eq 0) 'community and documentation checks'
-    & node (Join-Path $root 'scripts\check-package.mjs')
-    Assert-True ($LASTEXITCODE -eq 0) 'npm package checks'
 
     [Console]::WriteLine('all Claudex Windows tests passed')
 } finally {

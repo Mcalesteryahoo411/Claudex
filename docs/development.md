@@ -102,17 +102,12 @@ passes:
 For a package-manager release, also:
 
 1. keep `package.json` and `CHANGELOG.md` on the same version;
-2. verify `npm test`, `npm pack --dry-run`, and `./scripts/build-release.sh`;
+2. verify `npm test` and `./scripts/build-release.sh`;
 3. wait for the release-assets workflow to attach both archives and
    `SHA256SUMS`;
-4. publish `claudex-codex` to npm, then verify a clean-prefix global install;
-5. update and test the BeamoINT Homebrew tap and Scoop bucket with the exact
+4. update and test the BeamoINT Homebrew tap and Scoop bucket with the exact
    release-asset hashes;
-6. submit the matching WinGet manifest and link its external review.
-
-The manual `Publish npm` workflow is designed for npm trusted publishing and
-uses GitHub OIDC instead of a long-lived registry token. Configure the npm
-package to trust `.github/workflows/publish-npm.yml` before using it.
+5. submit the matching WinGet manifest and link its external review.
 
 Publish only archives built from the verified release tag. Do not publish
 credentials, installed state, or the downloaded CLIProxyAPI binary from a local

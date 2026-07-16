@@ -18,24 +18,29 @@ const setupLockPath = join(configDir, 'package-setup.lock');
 const envPath = join(configDir, 'env');
 
 // A package manager owns the public `claudex` shim. Keep the managed launcher
-// private so it cannot shadow or overwrite npm, Homebrew, Scoop, or WinGet's
+// private so it cannot shadow or overwrite Homebrew, Scoop, or WinGet's
 // command and prevent a later package version from running this bootstrap.
 const binDir = join(configDir, 'package-bin');
 const launcherPath = join(binDir, isWindows ? 'claudex.ps1' : 'claudex');
 
 function detectedInstallMethod() {
   const explicit = process.env.CLAUDEX_INSTALL_METHOD;
-  if (['npm', 'homebrew', 'scoop', 'winget'].includes(explicit)) return explicit;
+  if (['homebrew', 'scoop', 'winget'].includes(explicit)) return explicit;
   const normalizedRoot = packageRoot.replaceAll('\\', '/').toLowerCase();
-  // npm commonly installs global packages below /opt/homebrew/lib/node_modules
-  // on Apple Silicon. Only a Cellar path proves that Homebrew owns this shim.
+  // Only a Cellar path proves that Homebrew owns this shim.
   if (normalizedRoot.includes('/cellar/')) return 'homebrew';
   if (normalizedRoot.includes('/scoop/apps/')) return 'scoop';
   if (normalizedRoot.includes('/microsoft/winget/packages/') || normalizedRoot.includes('/winget/packages/')) return 'winget';
-  return 'npm';
+  return null;
 }
 
 const installMethod = detectedInstallMethod();
+
+function requireInstallMethod() {
+  if (!installMethod) {
+    fail('this bootstrap only supports Homebrew, Scoop, or WinGet installations; use the source installer at https://claudex.work instead');
+  }
+}
 
 function fail(message, code = 1) {
   process.stderr.write(`claudex: ${message}\n`);
@@ -225,6 +230,8 @@ if (args.length === 1 && args[0] === '--package-version') {
   process.stdout.write(`${version}\n`);
   process.exit(0);
 }
+
+requireInstallMethod();
 
 if (args[0] === '--package-setup') {
   const setupArgs = args.slice(1);

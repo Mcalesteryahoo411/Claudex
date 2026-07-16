@@ -5,6 +5,15 @@ uses [Semantic Versioning](https://semver.org/) for tagged releases.
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-07-15
+
+### Removed
+
+- Discontinued the unpublished `claudex-codex` npm distribution: the npm
+  publish workflow, the npm self-update path, and every npm install
+  instruction. Homebrew, Scoop, WinGet, and the verified source installers
+  are the supported channels.
+
 ## [1.4.2] - 2026-07-15
 
 ### Fixed

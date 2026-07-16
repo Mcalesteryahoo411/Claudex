@@ -324,7 +324,7 @@ install_method="${CLAUDEX_INSTALL_METHOD:-}"
 if [[ -z "$install_method" ]]; then
   if [[ -d "$root/.git" ]]; then install_method=git; else install_method=archive; fi
 fi
-[[ "$install_method" =~ ^(npm|homebrew|scoop|winget|archive|git)$ ]] || fail "unsupported CLAUDEX_INSTALL_METHOD: $install_method"
+[[ "$install_method" =~ ^(homebrew|scoop|winget|archive|git)$ ]] || fail "unsupported CLAUDEX_INSTALL_METHOD: $install_method"
 install_version=$(jq -r '.version' "$root/package.json")
 [[ "$install_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'package.json contains an invalid Claudex version'
 receipt_tmp=$(mktemp "$config_dir/install.json.tmp.XXXXXX")
@@ -336,7 +336,7 @@ receipt_tmp=""
 
 printf 'Installed Claudex launcher: %s\n' "$launcher_target"
 printf 'Installed isolated config: %s\n' "$config_dir"
-if [[ -z "${CLAUDEX_PACKAGE_ROOT:-}" && ! "${CLAUDEX_INSTALL_METHOD:-}" =~ ^(npm|homebrew|scoop|winget)$ && ":$PATH:" != *":$bin_dir:"* ]]; then
+if [[ -z "${CLAUDEX_PACKAGE_ROOT:-}" && ! "${CLAUDEX_INSTALL_METHOD:-}" =~ ^(homebrew|scoop|winget)$ && ":$PATH:" != *":$bin_dir:"* ]]; then
   printf 'Add this directory to PATH: %s\n' "$bin_dir"
 fi
 
