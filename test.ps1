@@ -1599,8 +1599,15 @@ process.stdout.write(JSON.stringify({
                     ForEach-Object { $_.FullName }
             )
             $env:FAKE_FABLEPLAN_OUTPUT = $rejectedOutput
-            $rejectedMessage = (& (Join-Path $root 'claudex.ps1') --fableplan "rejected $rejectedOutput" 2>&1 | Out-String)
-            Assert-True ($LASTEXITCODE -eq 1) "Fableplan rejects $rejectedOutput planner output"
+            $savedErrorActionPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                $rejectedMessage = (& $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'claudex.ps1') --fableplan "rejected $rejectedOutput" 2>&1 | Out-String)
+                $rejectedExitCode = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $savedErrorActionPreference
+            }
+            Assert-True ($rejectedExitCode -eq 1) "Fableplan rejects $rejectedOutput planner output"
             $expectedRejection = switch ($rejectedOutput) {
                 'empty' { 'Fable planner returned an empty plan; Terra was not started.' }
                 'nul' { 'Fable planner returned a NUL byte; Terra was not started.' }
