@@ -1498,7 +1498,9 @@ process.stdout.write(JSON.stringify({
     Assert-True ($windowsLauncher.Contains('Ensure-ProxyForLaunch $requiredProxyModels')) 'primary and fallback model routes share preflight'
     Assert-True ($windowsLauncher.Contains('$earlyOption -in $claudeRequiredValueOptions')) 'early maintenance recognition uses the shared option arity table'
     Assert-True ($windowsLauncher.Contains('$maintenanceCommandDetected = $true')) 'maintenance commands can follow documented global options'
-    Assert-True ($windowsLauncher.Contains("'CLAUDEX_PROXY_TOKEN', 'CLAUDEX_PROXY_URL', 'CLAUDEX_PROXY_CONFIG', 'CLAUDEX_PROXY_BIN'")) 'first-party Chrome route scrubs raw Claudex proxy state'
+    foreach ($proxyEnvironmentName in @('CLAUDEX_PROXY_TOKEN', 'CLAUDEX_PROXY_URL', 'CLAUDEX_PROXY_CONFIG', 'CLAUDEX_PROXY_BIN')) {
+        Assert-True ($windowsLauncher.Contains("'$proxyEnvironmentName'")) "first-party Chrome route tracks $proxyEnvironmentName for scrubbing"
+    }
     Assert-True ($windowsLauncher.Contains("'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'")) 'first-party routes scrub alternate provider selectors'
     Assert-True ($windowsLauncher.Contains("CLAUDEX_ALLOW_REMOTE_PROXY=1")) 'Windows launcher documents the explicit trusted HTTPS proxy opt-in'
     Assert-True ($windowsLauncher.Contains('Stop-RecordedManagedProxy')) 'Windows launcher limits authentication recovery to recorded managed proxies'
