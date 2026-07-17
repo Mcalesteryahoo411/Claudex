@@ -64,11 +64,22 @@ Claudex:
 - generates a local 256-bit proxy key;
 - downloads a pinned CLIProxyAPI archive over HTTPS and verifies its SHA-256
   digest before installation;
-- stores only sanitized quota values in its usage cache.
+- stores only sanitized quota values in its usage cache;
+- removes managed Codex routing and credential variables before native Claude
+  model launches;
+- keeps concurrent native Claude and managed GPT sessions in separate
+  processes with separate provider environments;
+- transfers Fableplan output through a private temporary file only after size,
+  UTF-8, NUL byte, and nonempty validation, then removes that file when the
+  workflow exits.
 
 Claudex does not commit credentials, upload local session files, or print OAuth
-tokens. It cannot secure a compromised machine, an unsafe fork, a manually
-exposed proxy port, or third party software outside this repository.
+tokens. It does not combine Anthropic and Codex credentials in one process or
+copy a native Claude session into its managed GPT profile. The Fableplan text is
+treated as untrusted planning guidance rather than executable configuration.
+Claudex cannot secure a compromised machine, an unsafe fork, a manually exposed
+proxy port, malicious task or plan content, or third party software outside
+this repository.
 
 See [docs/architecture.md](docs/architecture.md) for the data flow and trust
 boundaries.

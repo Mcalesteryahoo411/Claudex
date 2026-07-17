@@ -9,8 +9,8 @@ and maintainers.
   updates, and moving between machines.
 - [Package managers](package-managers.md): Homebrew and Scoop distribution,
   plus the current WinGet submission status.
-- [Command reference](usage.md): launch modes, authentication, usage limits,
-  Claude Code passthrough, and examples.
+- [Command reference](usage.md): managed GPT modes, native Claude models,
+  Fableplan, concurrent providers, authentication, passthrough, and examples.
 - [Configuration](configuration.md): supported environment variables,
   defaults, validation, files, and advanced overrides.
 - [Skills](skills.md): automatic compatibility for existing Claude Code and
@@ -25,8 +25,8 @@ and maintainers.
 - [Development](development.md): repository layout, tests, cross platform
   workflow, release process, and review expectations.
 - [Claude Code and Codex compatibility](claude-code-compatibility.md): native,
-  translated, pass through, and first party only surfaces plus known provider
-  limitations.
+  translated, pass through, and first party only surfaces plus the provider
+  process and Fableplan transfer boundaries.
 - [Contributing](../CONTRIBUTING.md): how to propose and submit changes.
 - [Security policy](../SECURITY.md): supported versions and private reporting.
 - [Maintainer guide](../MAINTAINERS.md): triage, labels, ownership, and release responsibilities.

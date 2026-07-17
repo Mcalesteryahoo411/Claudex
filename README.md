@@ -6,7 +6,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-informational.svg)](docs/installation.md)
 
-Claudex is an open source compatibility layer for using Codex GPT models through the Claude Code interface. It reuses the Codex login already on your computer, configures the local bridge automatically, and preserves supported Claude Code command line workflows.
+Claudex is an open source compatibility layer for using Codex GPT models and
+native Claude models through the Claude Code interface. It reuses the Codex
+login already on your computer, configures the local bridge automatically, and
+keeps native Claude authentication separate. Supported Claude and GPT sessions
+can run at the same time in separate processes.
 
 > [!IMPORTANT]
 > Claudex is an independent community project. It is not affiliated with, endorsed by, or supported by OpenAI or Anthropic. Its installer uses the official [Codex CLI](https://developers.openai.com/codex/cli/) npm package and [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) installer when either prerequisite is missing. You remain responsible for the terms and usage limits of those services.
@@ -85,6 +89,12 @@ For release downloads, system requirements, updating, and removal, see the [inst
   including live account switch detection and clear login/logout recovery.
 - Friendly model choices for GPT-5.6 Sol, Terra, Luna, and Solplan.
 - Solplan planning with Sol and implementation with Terra.
+- Native Fable, Opus, Sonnet, and Haiku shortcuts plus direct access to every
+  model ID accepted by the installed Claude Code CLI.
+- Fableplan planning with native Fable and isolated implementation with managed
+  Terra. Only bounded plan text crosses between the two processes.
+- Concurrent Claude and GPT sessions with separate provider environments and
+  no shared credential process.
 - Auto, max effort, and Ultracode modes with explicit and separate behavior.
 - Stable context accounting and automatic compaction near 280k tokens.
 - Codex usage limit reporting in the status line and through `/usage-limit`.
@@ -113,6 +123,12 @@ claudex                    Start with Sol and auto mode
 claudex --terra            Start with Terra
 claudex --luna             Start with Luna
 claudex --solplan          Use Sol for planning and Terra for implementation
+claudex --fable            Start native Claude Code with Fable
+claudex --opus             Start native Claude Code with Opus
+claudex --sonnet           Start native Claude Code with Sonnet
+claudex --haiku            Start native Claude Code with Haiku
+claudex --claude-model ID  Start native Claude Code with an alias or full model ID
+claudex --fableplan "TASK"  Let Fable plan read only, then let Terra implement
 claudex --max-effort       Use Claude Code's maximum reasoning effort
 claudex --ultracode        Enable the session-scoped Ultracode workflow
 claudex --manual           Disable automatic permissions for this launch
@@ -132,6 +148,13 @@ claudex --claude-chrome    Use the direct Claude profile with Chrome support
 ```
 
 Inside Claudex, `/model solplan` selects Solplan and `/usage-limit` prints the detailed quota report. Existing Claude and Codex skills can be referenced with `/skill-name` or `$skill-name`; see the [skills guide](docs/skills.md) for discovery and collision behavior. Unknown options and supported Claude Code subcommands are passed through unchanged. See the [usage guide](docs/usage.md) for the complete command reference.
+
+The GPT model picker belongs to a managed Codex backed process. Native Claude
+selectors launch a separate first party Claude process and preserve the caller
+owned profile. For complete native argument control, use
+`claudex claude --model MODEL ...`. Open a Claude process and a GPT process in
+separate terminals to use both providers concurrently. Claudex never places
+both providers' credentials or routing variables in one process.
 
 Use `claudex codex ...` for complete native Codex harness access and
 `claudex claude ...` for complete native Claude harness access, subject to the
@@ -179,11 +202,13 @@ Project policies and history are in [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNA
 
 ```text
 claudex command
-    -> validates the local Codex session
-    -> refreshes the private localhost bridge
-    -> launches an isolated Claude Code profile
-    -> maps friendly model names to Codex models
-    -> preserves supported Claude Code commands and options
+    -> managed GPT route: validates Codex, refreshes the loopback bridge,
+       and launches an isolated Claude Code profile
+    -> native Claude route: removes managed routing and launches the normal
+       Claude profile with the requested model
+    -> Fableplan route: captures a private native Fable plan, then launches
+       an isolated managed Terra implementer
+    -> preserves supported Claude Code commands and options on each route
 ```
 
 The installer downloads a pinned [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) release, verifies its published SHA-256 digest, and binds it to `127.0.0.1` on a dedicated port with a generated local key. The dependency is not vendored into this repository and retains its own license. Read the [architecture guide](docs/architecture.md) and [third party notice](NOTICE.md) before changing authentication or proxy behavior.

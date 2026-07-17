@@ -8,20 +8,25 @@ signed Claude Code executable.
 ```text
 User
   |
-  v
-claudex launcher (Bash or PowerShell)
-  |-- validates config and Claude Code capabilities
-  |-- synchronizes Codex auth through codex-session
-  |-- injects model aliases, limits, agents, and status settings
-  v
-Claude Code terminal UI
+  |-- managed GPT route
+  |     claudex -> isolated Claude Code profile
+  |             -> CLIProxyAPI on 127.0.0.1:8318
+  |             -> authenticated Codex account
   |
-  v
-CLIProxyAPI on 127.0.0.1:8318
+  |-- native Claude route
+  |     claudex -> scrub managed routing and credentials
+  |             -> caller owned Claude Code profile with requested model
+  |             -> caller owned Anthropic authentication
   |
-  v
-authenticated Codex account
+  `-- Fableplan route
+        native Fable read only planner
+             -> validated plan text in private temporary file
+             -> isolated managed Terra implementer
 ```
+
+Each running process belongs to one provider route. Native Claude and managed
+GPT processes can run concurrently, but their provider environments,
+credentials, profiles, sessions, and billing contexts are never combined.
 
 The preload module runs inside Claude Code's JavaScript runtime only for Claudex
 sessions backed by GPT models. It translates the exact `/model solplan` input alias
@@ -30,6 +35,20 @@ startup billing field with the account bound ChatGPT plan label. The native
 stdout writer is restored before the next fullscreen frame; stderr, print
 output, and machine output are never intercepted. Direct Claude in Chrome
 sessions do not receive that preload or the GPT proxy environment.
+
+Native model shortcuts (`--fable`, `--opus`, `--sonnet`, and `--haiku`) and
+`--claude-model` enter the native route before the managed environment is
+loaded. They are argument conveniences, not model remaps. The explicit
+`claudex claude --model ...` route reaches the same boundary with complete
+native argument control.
+
+Fableplan enters a small coordinator before either provider starts. It launches
+Fable through the native route with read only tools and captures a bounded plan
+in a fresh private workspace. A nonempty valid UTF-8 plan without NUL bytes is
+then exposed to a new Terra process through that workspace. Terra
+receives an explicit instruction to treat the plan as untrusted guidance. If
+the planner fails or validation fails, Terra does not start. Cleanup removes
+the plan file and workspace after completion or interruption.
 
 ## Components
 
@@ -114,6 +133,12 @@ all asset digests and running the full platform matrix.
   configuration, standard Codex credentials, and supported command line flags.
 - **Loopback boundary:** CLIProxyAPI binds to `127.0.0.1` and requires a random
   local key.
+- **Provider process boundary:** a managed GPT process receives only Codex
+  bridge routing, while a native Claude process receives only its caller owned
+  profile. Concurrent processes do not imply shared credentials or sessions.
+- **Fableplan transfer boundary:** only bounded validated plan text moves from
+  the native planner to the managed implementer, through a private temporary
+  file that is removed at workflow exit.
 - **Third party boundary:** Codex, Claude Code, provider APIs, browser
   extensions, and CLIProxyAPI remain separately maintained software and
   services.

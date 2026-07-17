@@ -5,10 +5,17 @@ uses [Semantic Versioning](https://semver.org/) for tagged releases.
 
 ## [Unreleased]
 
-## [1.5.9] - 2026-07-16
+## [1.6.0] - 2026-07-17
 
 ### Added
 
+- Added direct native Claude model selectors for Fable, Opus, Sonnet, Haiku,
+  and any alias or full model ID accepted by the installed Claude Code CLI.
+- Added Fableplan, which captures a bounded read only plan from a native Fable
+  process and gives that plan to an isolated managed Terra implementation
+  process through a private temporary file.
+- Documented safe concurrent Claude and GPT use in separate processes, with a
+  strict provider and credential boundary between them.
 - Kept authentication and proxy recovery watchers active for detached Claude
   Code background agents until the managed agent registry becomes empty.
 - Added deterministic release archive generation with canonical gzip, tar, ZIP,
@@ -450,8 +457,8 @@ uses [Semantic Versioning](https://semver.org/) for tagged releases.
 - Claude in Chrome first party profile support.
 - Cross platform regression coverage in GitHub Actions.
 
-[Unreleased]: https://github.com/BeamoINT/Claudex/compare/v1.5.9...HEAD
-[1.5.9]: https://github.com/BeamoINT/Claudex/compare/v1.5.8...v1.5.9
+[Unreleased]: https://github.com/BeamoINT/Claudex/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/BeamoINT/Claudex/compare/v1.5.8...v1.6.0
 [1.5.8]: https://github.com/BeamoINT/Claudex/compare/v1.5.7...v1.5.8
 [1.5.7]: https://github.com/BeamoINT/Claudex/compare/v1.5.6...v1.5.7
 [1.5.6]: https://github.com/BeamoINT/Claudex/compare/v1.5.5...v1.5.6

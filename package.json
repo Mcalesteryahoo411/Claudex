@@ -1,8 +1,8 @@
 {
   "name": "claudex-codex",
-  "version": "1.5.9",
+  "version": "1.6.0",
   "private": true,
-  "description": "Cross-platform compatibility layer for using Codex GPT models in Claude Code",
+  "description": "Cross platform compatibility layer for using Codex GPT and native Claude models through Claude Code",
   "type": "module",
   "files": [
     "docs/",

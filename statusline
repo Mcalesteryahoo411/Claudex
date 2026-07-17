@@ -268,29 +268,51 @@ fi
 
 rendered_plain="$full_plain"
 rendered_ansi="$full_ansi"
-if (( statusline_columns > 0 && ${#rendered_plain} > statusline_columns )); then
-  rendered_plain="$core_plain"
-  rendered_ansi="$core_ansi"
+context_plain=""
+context_ansi=""
+if [[ -n "$context_percent" ]]; then
+  context_plain="$mandatory_plain · ${context_percent}% context"
+  context_ansi="$mandatory_ansi · ${context_percent}% context"
 fi
-if (( statusline_columns > 0 && ${#rendered_plain} > statusline_columns )) && [[ -n "$context_percent" ]]; then
-  rendered_plain="$mandatory_plain · ${context_percent}% context"
-  rendered_ansi="$mandatory_ansi · ${context_percent}% context"
-fi
-if (( statusline_columns > 0 && ${#rendered_plain} > statusline_columns )); then
-  rendered_plain="$mandatory_plain"
-  rendered_ansi="$mandatory_ansi"
-fi
-if (( statusline_columns > 0 && ${#rendered_plain} > statusline_columns )); then
+# Bash counts UTF-8 bytes in a plain C locale but characters in UTF-8 locales.
+# Choose the layout with jq's locale-independent Unicode length so Linux and
+# macOS render the same status for the same declared terminal width.
+layout=$(jq -nr --arg full "$full_plain" --arg core "$core_plain" \
+  --arg context "$context_plain" --arg mandatory "$mandatory_plain" \
+  --argjson columns "$statusline_columns" '
+    if $columns == 0 or ($full | length) <= $columns then "full"
+    elif ($core | length) <= $columns then "core"
+    elif ($context | length) > 0 and ($context | length) <= $columns then "context"
+    elif ($mandatory | length) <= $columns then "mandatory"
+    else "short"
+    end
+  ')
+case "$layout" in
+  full) ;;
+  core) rendered_plain="$core_plain"; rendered_ansi="$core_ansi" ;;
+  context) rendered_plain="$context_plain"; rendered_ansi="$context_ansi" ;;
+  mandatory) rendered_plain="$mandatory_plain"; rendered_ansi="$mandatory_ansi" ;;
+  short)
   prefix_plain="$brand_plain · "
-  available_model=$(( statusline_columns - ${#prefix_plain} ))
-  if (( available_model >= 2 )); then
-    shortened_model="${model_name:0:available_model-1}…"
+  short_layout=$(jq -nrj --arg brand "$brand_plain" --arg prefix "$prefix_plain" \
+    --arg model "$model_name" --argjson columns "$statusline_columns" '
+      ($columns - ($prefix | length)) as $available
+      | if $available >= 2 then
+          "model\u001f" + $model[0:($available - 1)] + "…"
+        else
+          "brand\u001f" + $brand[0:$columns]
+        end
+    ')
+  IFS=$'\x1f' read -r short_kind shortened_text <<< "$short_layout"
+  if [[ "$short_kind" == model ]]; then
+    shortened_model="$shortened_text"
     rendered_plain="$prefix_plain$shortened_model"
     rendered_ansi="$brand_ansi · "$'\033[1m'"$shortened_model"$'\033[0m'
   else
-    rendered_plain="${brand_plain:0:statusline_columns}"
+    rendered_plain="$shortened_text"
     rendered_ansi=$'\033[38;5;81m'"$rendered_plain"$'\033[0m'
   fi
-fi
+  ;;
+esac
 
 printf '%s\n' "$rendered_ansi"

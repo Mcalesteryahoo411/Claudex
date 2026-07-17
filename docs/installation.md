@@ -12,7 +12,8 @@ model endpoints.
 | Codex CLI | Supplies the user's ChatGPT/Codex sign in; installed automatically when missing |
 | Claude Code | Supplies the terminal UI and tool protocol; installed automatically when missing |
 | Internet connection during installation | Downloads or updates dependencies and verifies the model endpoint |
-| Supported account access | The signed in Codex account must advertise the configured models |
+| Supported Codex account access | The signed in Codex account must advertise the configured managed GPT models |
+| Supported Anthropic account access | Required only for native Claude selectors, Fableplan, and other first party Claude routes; available models remain account controlled |
 
 The platform list describes supported installer and launcher paths, not a claim
 that every CPU and operating system combination runs in hosted CI. The current
@@ -158,6 +159,13 @@ claudex --usage-limit
 `--doctor` must report a healthy loopback proxy and advertise Sol, Terra, and
 Luna. If the account does not provide one of those models, Claudex exits with
 an actionable error instead of silently substituting a model.
+
+Native Claude selectors use the caller owned Claude Code profile and do not
+appear in the managed proxy health report. Test that optional route separately
+with a model available to the signed in Anthropic account, for example
+`claudex --fable --print "Reply with OK"`. A native Claude model and a managed
+GPT model can run at the same time in separate terminals. Their accounts,
+credentials, profiles, and billing remain independent.
 
 ## Update
 

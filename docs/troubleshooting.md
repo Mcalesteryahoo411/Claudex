@@ -60,6 +60,29 @@ into another account in Codex Desktop or the Codex CLI, the running Claudex
 session follows that account automatically; press Continue after the new
 sign in completes.
 
+## Native Claude model is unavailable
+
+`--fable`, `--opus`, `--sonnet`, and `--haiku` use the installed Claude Code
+CLI and caller owned Claude profile. Check the direct route without Claudex model
+translation:
+
+```bash
+claudex claude --model fable --print "Reply with OK"
+```
+
+If the CLI rejects that alias or model ID, update Claude Code and verify the
+Anthropic sign in, plan, region, and model entitlement. Claudex forwards exact
+IDs through `--claude-model MODEL` but never substitutes another Claude model.
+Codex authentication and `claudex --doctor` do not prove native Claude access.
+
+## Fableplan does not start Terra
+
+Fableplan fails closed when native Fable exits unsuccessfully or returns an
+empty, oversized, invalid UTF-8, or NUL containing plan. Read the planner error,
+then verify native Fable with `claudex --fable --print "Plan this task"`.
+Fableplan requires one quoted nonempty task string. Terra does not start after
+a planning failure, and the private transfer file is removed during cleanup.
+
 ## Local proxy does not become healthy
 
 An open Claudex session automatically restarts a proxy that exits unexpectedly.

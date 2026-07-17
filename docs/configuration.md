@@ -39,6 +39,39 @@ The concurrency values are Claudex safeguards, not promises that an upstream
 account will always accept that many simultaneous requests. Lower them when an
 account or provider has tighter capacity.
 
+## Provider and model routing
+
+`CLAUDEX_MODEL`, `CLAUDEX_AUTO_MODE_MODEL`, and `CLAUDEX_BACKGROUND_MODEL`
+configure the managed Codex backed route only. They must remain managed Codex
+GPT model IDs. Native Claude selection is intentionally command scoped:
+
+```text
+claudex --fable
+claudex --opus
+claudex --sonnet
+claudex --haiku
+claudex --claude-model MODEL
+claudex claude --model MODEL
+```
+
+The four short selectors pass their alias to the installed Claude Code CLI.
+`--claude-model` and the explicit native route accept any alias or full model
+ID that CLI and the caller's Anthropic account support. There is no Claudex
+environment variable that stores a Claude credential or silently changes the
+native profile's default model.
+
+Managed GPT and native Claude sessions may run at the same time as separate
+processes. Claudex scrubs its managed proxy URL, local proxy key, Codex bridge
+state, and model routing before every native Claude launch. The managed process
+does not receive the native Claude process's authentication state. Do not copy
+provider variables or credentials between these routes.
+
+`--fableplan` also preserves this boundary. Its native Fable planner and
+managed Terra implementer use different process environments and configuration
+roots. Claudex transfers the bounded plan through a private temporary file and
+removes it when the workflow ends. The one mebibyte plan limit and validation
+rules are security controls, not public configuration settings.
+
 For proxied sessions, Claudex hides Claude Code's Anthropic only 1M model
 variant and uses `CLAUDEX_CONTEXT_WINDOW` plus the managed compaction boundary
 instead. Direct `--claude-chrome` and maintenance commands do not inherit that

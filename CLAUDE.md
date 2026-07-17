@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Claudex is an open source compatibility layer that lets Codex GPT models run through the Claude Code terminal interface. It reuses an existing local Codex login, runs a pinned, verified CLIProxyAPI binary bound to `127.0.0.1`, and launches an isolated Claude Code profile pointed at that proxy. It does not fork or patch the signed Claude Code executable: it is a launcher/wrapper, distributed as Bash + PowerShell scripts.
+Claudex is an open source compatibility layer that lets Codex GPT models and
+native Claude models run through the Claude Code terminal interface. Managed
+GPT sessions reuse an existing local Codex login, run a pinned, verified
+CLIProxyAPI binary bound to `127.0.0.1`, and launch an isolated Claude Code
+profile pointed at that proxy. Native Claude model routes use the caller owned
+Claude profile in a separate process after managed routing is removed.
+Fableplan uses a native read only Fable planner and an isolated managed Terra
+implementer, transferring only bounded plan text through a private temporary
+file. Claudex does not fork or patch the signed Claude Code executable: it is a
+launcher/wrapper, distributed as Bash + PowerShell scripts.
 
 Production code is intentionally dependency light: Bash, PowerShell, a small Node preload module, and JSON. There is no application build step or bundler.
 
@@ -43,16 +52,14 @@ CI (`.github/workflows/test.yml`) runs the Unix suite on macOS + Ubuntu, the Pow
 
 ```
 user -> claudex launcher (Bash or PowerShell)
-           |-- validates config and Claude Code capabilities
-           |-- synchronizes Codex auth via codex-session
-           |-- injects model aliases, limits, agents, status settings
-           v
-         Claude Code terminal UI
-           v
-         CLIProxyAPI on 127.0.0.1:8318
-           v
-         authenticated Codex account
+           |-- managed GPT -> isolated Claude profile -> loopback proxy -> Codex
+           |-- native Claude -> scrub managed state -> caller owned Claude profile
+           `-- Fableplan -> native Fable plan file -> managed Terra
 ```
+
+Native Claude and managed GPT processes may run concurrently, but each process
+receives one provider environment only. Provider credentials, profiles,
+sessions, and billing contexts never cross that boundary.
 
 ### Components (Unix / Windows implementations kept behaviorally in sync)
 
@@ -89,6 +96,10 @@ At every launch, `claudex` reads `claude --help` and only injects flags Claude C
 
 - Trusted: repo managed scripts, installed private config, standard Codex credentials, supported CLI flags.
 - Loopback boundary: CLIProxyAPI binds `127.0.0.1` only, guarded by a generated local key.
+- Provider process boundary: native Claude and managed GPT routing and
+  credentials remain in separate processes.
+- Fableplan boundary: only bounded validated plan text crosses from the native
+  planner to the managed implementer through a private temporary file.
 - Third party boundary: Codex, Claude Code, provider APIs, browser extensions, and CLIProxyAPI are separately maintained.
 - Public repo boundary: no generated config, auth, prompts, history, sessions, or usage caches are ever committed. `~/.config/claudex` is fully separate from normal Claude Code state.
 

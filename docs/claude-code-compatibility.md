@@ -6,8 +6,10 @@ is a Claude Code harness
 backed by Codex GPT models, not a fork of either coding harness. Its interactive
 UI, tools, transcripts, and machine output protocol remain Claude Code's. Codex
 supplies the authenticated model session and the portable features that Claudex
-explicitly translates. Explicit native routes are described below for features
-that should remain in their original harness.
+explicitly translates. Explicit native routes provide Fable, Opus, Sonnet,
+Haiku, and every model ID accepted by the installed Claude Code CLI. Native
+Claude and managed GPT routes can run concurrently in separate processes, but
+never share a provider environment or credentials.
 
 That distinction matters: preserving a command line argument is not the same as
 implementing the equivalent Codex feature. The tables below describe the
@@ -29,8 +31,8 @@ interchangeable.
 | Capability | Claude Code side in Claudex | Codex side | Status and boundary |
 | --- | --- | --- | --- |
 | Interactive UI and tools | Claude Code owns the terminal UI and tool schemas | Codex models answer through the local provider bridge | **Native** Claude Code runtime; the Codex TUI and its tool protocol are **not portable** |
-| Authentication and model access | Claude Code receives a generated loopback provider configuration | The standard file backed Codex login is synchronized into a private bridge credential | **Translated** |
-| Model selection | Claude Code model aliases expose Sol, Terra, Luna, and Solplan | The aliases resolve to advertised Codex GPT model IDs | **Translated**; this is not the complete native Codex model catalog |
+| Authentication and model access | A managed process receives a generated loopback provider configuration; a native Claude process keeps caller owned Anthropic authentication | The standard file backed Codex login is synchronized into a private bridge credential | **Translated** for managed GPT and **native** for direct Claude; credentials stay in separate processes |
+| Model selection | Managed aliases expose Sol, Terra, Luna, and Solplan; native selectors expose Fable, Opus, Sonnet, Haiku, and any accepted full Claude model ID | Managed aliases resolve to advertised Codex GPT model IDs | **Translated** for managed GPT and **native** for Claude; neither route substitutes an unavailable model |
 | Project instructions | Claude Code discovers its supported `CLAUDE.md` hierarchy | Claudex snapshots Codex guidance in global to launch directory order into a private `CLAUDE.md` overlay, honoring effective fallback filenames, the configured byte budget, and trusted project config | **Native** plus **translated**; broader managed Codex policy remains a native route concern |
 | Skills | Claude project skills remain native; imported skills are supplied through an additional private directory | Personal, project, legacy, admin, and enabled plugin skill content is snapshotted and adapted | **Native** plus **translated**; see [the skills contract](skills.md) |
 | Plugins | Claude plugin management and explicit `--plugin-dir` arguments remain Claude interfaces | Validated Codex plugin skill content can be adapted, but plugin hooks, MCP servers, agents, settings, and app runtime are not activated in the default mode | **Pass through** for Claude plugins, **translated** for skill content, and otherwise **not portable** between harnesses; native routes retain each harness's plugin runtime |
@@ -57,6 +59,9 @@ plugins, policy, tools, or event protocols become portable between products.
 | `claudex [CLAUDEX-OPTIONS] [CLAUDE-ARGS]` | Default portable mode: Claude Code UI and tools backed by the Codex model bridge, with the translations documented above. |
 | `claudex codex [CODEX-ARGS]` | Native Codex route: hand off to the installed Codex CLI so Codex configuration, instructions, policy, sandbox, MCP, hooks, plugins, apps, sessions, and output protocols retain their native semantics. |
 | `claudex claude [CLAUDE-ARGS]` | Native Claude route: hand off without Codex provider or Claudex session injection. Caller owned Claude provider and profile configuration remain authoritative; managed Claudex state is scrubbed when crossing out of a managed session. |
+| `claudex --fable`, `--opus`, `--sonnet`, or `--haiku` | Native Claude model convenience routes: pass the selected alias through `--model` without loading managed GPT state. |
+| `claudex --claude-model MODEL` | Native Claude model route for any alias or full model ID accepted by the installed CLI and account. |
+| `claudex --fableplan "TASK"` | Coordinated route: run a native Fable read only planner, validate its bounded plan text, then start an isolated managed Terra implementer with private read access to that plan. |
 | `claudex --claude-chrome [CLAUDE-ARGS]` | First party Claude convenience route that also requests Claude in Chrome. |
 
 Claude and Codex session identifiers, configuration files, policy decisions,
@@ -64,6 +69,20 @@ plugin runtime state, and event streams are not converted between routes. A
 feature that is marked not portable remains fully available through its native
 route when the installed CLI, account, platform, and external services support
 it.
+
+Concurrent Claude and GPT support means two or more independent processes can
+run at the same time. A single Claude Code process never switches provider
+credentials during a session. Native Claude receives the caller owned
+profile, while managed GPT receives only the private Codex bridge profile.
+Context, sessions, permissions, tools, usage, and billing remain independent.
+
+Fableplan coordinates two processes without merging those routes. The native
+planner receives safe mode, plan permission, and read only tools. Claudex
+captures at most one mebibyte of nonempty valid UTF-8 plan text without NUL
+bytes in a private temporary file. Only after successful validation does the
+managed Terra process start. It receives the original task and read access to
+that plan as untrusted guidance. Planner failure or invalid output fails closed,
+and cleanup removes the transfer file.
 
 The default proxied mode translates only the portable semantics listed in the
 matrix. It does not emulate the Codex TUI or tool protocol, and it does not load
@@ -87,6 +106,9 @@ and account state remain separate.
 | Interactive and print sessions | GPT-5.6 model aliases, status line, auto permissions, context controls, bounded retries, and leader guard are injected | Isolated argument tests and manual live Sol prompts |
 | Sol, Terra, and Luna | Friendly names and one picker entry per real model | Proxy model inventory, launcher tests, and manual live Sol calls |
 | Solplan | Friendly `/model solplan` entry backed by Claude Code's `opusplan` selector; Sol plans and Terra implements | Model cache, alias environment, and launcher regressions |
+| Native Claude models | Fable, Opus, Sonnet, and Haiku shortcuts plus exact alias or full ID forwarding through `--claude-model` and `claudex claude --model` | Isolated argument and provider environment regressions on Unix and Windows |
+| Concurrent providers | Native Claude and managed GPT processes may overlap without sharing provider routing, credentials, profiles, or session state | Environment isolation and concurrent process regressions |
+| Fableplan | Read only native Fable planning followed by isolated managed Terra implementation; only bounded validated plan text crosses through a private temporary file | Success, planner failure, invalid output, size limit, cleanup, argument, and environment isolation regressions on Unix and Windows |
 | Max effort | `--max-effort` maps to native `--effort max` and labels the session `max` | Isolated launcher regression and manual exact output prompt |
 | Ultracode | `--ultracode` enables session only `ultracode`, `workflows`, and xhigh effort | Isolated launcher regression and manual exact output prompt |
 | Auto mode | Terra classifier is pinned through the Codex bridge, explicit named approvals are carried into classification, and Anthropic model IDs are rejected for classifier overrides | Environment, settings schema, and doctor regressions |
@@ -150,6 +172,17 @@ default.
   route rather than the Codex backed provider bridge. They can require a
   first party Claude login and use the Anthropic account's entitlement and
   billing context; service availability remains upstream controlled.
+- Native Claude model selectors use the caller's normal Claude profile and
+  account. Claudex can forward every alias or full model ID, but it cannot grant
+  an entitlement, predict a renamed upstream alias, or make an unavailable
+  model succeed.
+- Claude and GPT models run together only as separate processes. Claudex does
+  not place both provider credentials in one process and does not convert an
+  active session from one provider to the other.
+- Fableplan allows the native planner to read the current project through its
+  restricted tool set. The plan can contain unsafe or incorrect instructions,
+  so Terra receives it as untrusted guidance and remains responsible for normal
+  permission checks.
 - Plugin, MCP, IDE, worktree, Git, hook, and cloud behavior can depend on
   project configuration and external services. Claudex preserves the documented
   Claude interfaces; it cannot make an unavailable external service succeed.
@@ -169,7 +202,8 @@ default.
 ## Regression policy
 
 The cross platform suites verify Claudex owned wrapper arguments,
-authentication lifecycle, environment isolation, effort and Solplan modes,
+authentication lifecycle, environment isolation, native Claude selectors,
+concurrent provider processes, effort, Solplan, and Fableplan modes,
 conservative plan policy, permissions, task/agent policy, model labels, quota
 sanitization, fallback behavior, resume attribution, status rendering,
 compaction stabilization, cursor behavior, skills, and installers. A

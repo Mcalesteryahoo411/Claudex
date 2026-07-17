@@ -17,6 +17,12 @@ claudex --terra --print "Explain this repository"
 | `claudex --terra` | Start with GPT-5.6 Terra |
 | `claudex --luna` | Start with GPT-5.6 Luna |
 | `claudex --solplan` | Use Sol while planning and Terra while implementing |
+| `claudex --fable` | Start native Claude Code with the Fable alias |
+| `claudex --opus` | Start native Claude Code with the Opus alias |
+| `claudex --sonnet` | Start native Claude Code with the Sonnet alias |
+| `claudex --haiku` | Start native Claude Code with the Haiku alias |
+| `claudex --claude-model MODEL` | Start native Claude Code with any alias or full model ID accepted by that CLI |
+| `claudex --fableplan "TASK"` | Ask native Fable for a read only plan, then start managed Terra with that plan |
 | `claudex --manual` | Use manual permission handling for this launch |
 | `claudex --auto` | Use auto permission handling for this launch |
 | `claudex --accept-edits` | Automatically accept edit operations for this launch |
@@ -31,6 +37,19 @@ claudex --terra --print "Explain this repository"
 `--max-effort` and `--ultracode` are mutually exclusive. Explicit `--effort`
 or `--settings` arguments cannot be combined with either shortcut because they
 could silently override the selected mode.
+
+The native Claude selectors and `--fableplan` must be the first Claudex option.
+`--claude-model` requires one nonempty value. Each selector forwards every
+remaining token to Claude Code in order. Use the explicit native route when a
+model argument must appear in a different position:
+
+```bash
+claudex claude --model fable --print "Explain this repository"
+```
+
+Availability and accepted aliases or full identifiers come from the installed
+Claude Code CLI and the signed in Anthropic account. Claudex does not
+substitute another Claude model when an identifier is unavailable.
 
 Auto mode uses GPT-5.6 Terra through the authenticated Codex bridge for its
 safety classifier. It recognizes an explicit user approval for the named
@@ -86,6 +105,46 @@ is reserved for explicit planning or a decision that must precede execution.
 
 Model availability depends on the signed in Codex account. `claudex --doctor`
 shows what the local authenticated endpoint advertises.
+
+## Native Claude models
+
+`--fable`, `--opus`, `--sonnet`, and `--haiku` are short forms of a native
+Claude Code launch with the matching model alias. `--claude-model MODEL`
+accepts an alias or exact model ID. `claudex claude --model MODEL ...` exposes
+the same native model interface without any Claudex option translation.
+
+These commands do not use the Codex bridge, managed model picker, managed
+status line, Codex usage display, or managed agent definitions. Claudex removes
+managed provider variables and credentials before it starts the native process,
+then lets the caller owned Claude profile, account, platform, and service entitlement
+control the result.
+
+Claude and GPT models can run concurrently by using separate processes. For
+example, start `claudex --fable` in one terminal and `claudex --terra` in
+another. A process receives one provider environment only. Claudex never loads
+Anthropic and Codex credentials into the same process, and sessions, context,
+tool state, and billing remain independent.
+
+## Fableplan
+
+`claudex --fableplan "TASK"` is a deliberate two process workflow:
+
+1. A native Fable process receives the task with safe mode, plan permission,
+   and read only `Read`, `Glob`, and `Grep` tools.
+2. Claudex captures only its plan text into a private temporary file. The plan
+   must be nonempty valid UTF-8 without NUL bytes and must stay within the
+   one mebibyte limit.
+3. If planning succeeds, an isolated managed Terra process receives the
+   original task and access to the private plan file. The implementation
+   prompt treats the plan as untrusted planning guidance.
+4. Claudex removes the temporary file after Terra exits. A planning failure,
+   invalid plan, or oversized plan prevents Terra from starting.
+
+The native planner and managed implementer never share a provider environment,
+credential, session, or writable state directory. The private plan file is the
+only data transferred from the planner process to the implementer process.
+Fableplan requires exactly one nonempty task string, so quote a task that
+contains spaces.
 
 ## Authentication
 
@@ -149,7 +208,8 @@ claudex --claude-chrome --resume SESSION-ID
 Use `claudex codex ...` for Codex only configuration, policy, sandboxing, MCP,
 hooks, plugins, apps, web search, threads, and Codex event formats. Use
 `claudex claude ...` for native Claude configuration, providers, plugins, and
-features without automatically enabling Chrome. Both commands preserve their
+features without automatically enabling Chrome. Native Claude model shortcuts
+use that same clean route. Both commands preserve their
 remaining arguments and hand control to the installed upstream CLI. They do
 not translate sessions, policy decisions, plugins, or event streams between
 the two harnesses. When called from a managed Claudex session, the native Claude
