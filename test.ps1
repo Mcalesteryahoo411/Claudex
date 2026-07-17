@@ -226,36 +226,36 @@ if not "%FAKE_CODEX_NATIVE_LOG%"=="" (
   >>"%FAKE_CODEX_NATIVE_LOG%" echo BUN=%BUN_OPTIONS%
   if not "%FAKE_CODEX_NATIVE_EXIT%"=="" exit /b %FAKE_CODEX_NATIVE_EXIT%
 )
-if "%1"=="app-server" (
+if "%~1"=="app-server" (
   echo {"id":1,"result":{}}
   echo {"id":2,"result":{"rateLimits":{"limitId":"codex","limitName":"Codex","planType":"pro","primary":{"usedPercent":63,"windowDurationMins":10080,"resetsAt":1784705933}},"rateLimitsByLimitId":{}}}
   exit /b 0
 )
-if "%1"=="-c" (
+if "%~1"=="-c" (
   if not "%FAKE_CODEX_CONFIG_ARG_LOG%"=="" >"%FAKE_CODEX_CONFIG_ARG_LOG%" echo %~2
   if not "%FAKE_CODEX_AUTH_ARGS_LOG%"=="" echo file:%~3 %~4>>"%FAKE_CODEX_AUTH_ARGS_LOG%"
-  if "%3"=="login" if "%4"=="status" (
+  if "%~3"=="login" if "%~4"=="status" (
     if not "%FAKE_CODEX_FILE_STATUS%"=="" exit /b %FAKE_CODEX_FILE_STATUS%
     if "%FAKE_CODEX_LOGGED_OUT%"=="1" exit /b 1
     exit /b 0
   )
-  if "%3"=="logout" (
+  if "%~3"=="logout" (
     if not "%FAKE_CODEX_FILE_LOGOUT%"=="" exit /b %FAKE_CODEX_FILE_LOGOUT%
     if not "%FAKE_CODEX_LOGOUT_EXIT%"=="" exit /b %FAKE_CODEX_LOGOUT_EXIT%
     exit /b 0
   )
-  if "%3"=="login" (
+  if "%~3"=="login" (
     if not "%FAKE_CODEX_LOGIN_LOG%"=="" echo login>>"%FAKE_CODEX_LOGIN_LOG%"
     exit /b 0
   )
 )
 if not "%FAKE_CODEX_AUTH_ARGS_LOG%"=="" echo default:%~1 %~2>>"%FAKE_CODEX_AUTH_ARGS_LOG%"
 if "%FAKE_CODEX_LOGGED_OUT%"=="1" exit /b 1
-if "%1"=="login" if "%2"=="status" (
+if "%~1"=="login" if "%~2"=="status" (
   if not "%FAKE_CODEX_DEFAULT_STATUS%"=="" exit /b %FAKE_CODEX_DEFAULT_STATUS%
   exit /b 0
 )
-if "%1"=="logout" (
+if "%~1"=="logout" (
   if not "%FAKE_CODEX_DEFAULT_LOGOUT%"=="" exit /b %FAKE_CODEX_DEFAULT_LOGOUT%
   if not "%FAKE_CODEX_LOGOUT_EXIT%"=="" exit /b %FAKE_CODEX_LOGOUT_EXIT%
   exit /b 0
