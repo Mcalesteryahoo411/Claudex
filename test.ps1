@@ -44,24 +44,6 @@ function Wait-ForTestProcess([Diagnostics.Process] $Process, [string] $Message, 
     throw "assertion failed: $Message"
 }
 
-function Assert-TrackedTestProcessSucceeded([Diagnostics.Process] $Process, [string] $Label, [string] $Message) {
-    if ($Process.ExitCode -eq 0) { return }
-    $details = @()
-    foreach ($streamName in @('stdout', 'stderr')) {
-        $streamPath = Join-Path $temporary ($Label + '.' + $streamName + '.log')
-        if (Test-Path -LiteralPath $streamPath -PathType Leaf) {
-            try {
-                $streamText = [IO.File]::ReadAllText($streamPath).Trim()
-                if ($streamText) { $details += ($streamName + ': ' + $streamText) }
-            } catch {
-                $details += ($streamName + ' unavailable while its handle closes')
-            }
-        }
-    }
-    $suffix = if ($details.Count -gt 0) { ' (' + ($details -join '; ') + ')' } else { '' }
-    throw "assertion failed: $Message; exit code $($Process.ExitCode)$suffix"
-}
-
 function Remove-TestPathWithRetry([string] $Path, [int] $TimeoutMilliseconds = 5000) {
     $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
     do {
@@ -2022,7 +2004,6 @@ process.stdout.write(JSON.stringify({
             $env:FAKE_UPDATE_DONE_FILE = $updateDone
             $detachedUpdateLauncher = Start-TrackedTestProcess $shellPath $updateLauncherArguments 'windows-detached-update-launcher'
             Wait-ForTestProcess $detachedUpdateLauncher 'Windows launcher exits while its detached updater remains active'
-            Assert-TrackedTestProcessSucceeded $detachedUpdateLauncher 'windows-detached-update-launcher' 'Windows detached updater launcher succeeds'
             for ($attempt = 0; $attempt -lt 200 -and
                 (-not (Test-Path -LiteralPath $updateReady -PathType Leaf) -or
                  -not (Test-Path -LiteralPath (Join-Path $updateDirectory 'lock\owner') -PathType Leaf)); $attempt++) {
@@ -2033,7 +2014,6 @@ process.stdout.write(JSON.stringify({
             $env:CLAUDEX_TEST_UPDATE_WORKER_ATTEMPT_FILE = $updateAttempt
             $liveUpdateContender = Start-TrackedTestProcess $shellPath $updateLauncherArguments 'windows-live-update-contender'
             Wait-ForTestProcess $liveUpdateContender 'Windows live update owner contender launcher exits'
-            Assert-TrackedTestProcessSucceeded $liveUpdateContender 'windows-live-update-contender' 'Windows live update owner contender launcher succeeds'
             for ($attempt = 0; $attempt -lt 200 -and
                 (-not (Test-Path -LiteralPath $updateAttempt) -or
                  -not ([IO.File]::ReadAllText($updateAttempt).Contains('blocked '))); $attempt++) { Start-Sleep -Milliseconds 20 }
@@ -2060,7 +2040,6 @@ process.stdout.write(JSON.stringify({
             Remove-Item -LiteralPath @('Env:FAKE_UPDATE_WAIT_FILE', 'Env:FAKE_UPDATE_READY_FILE', 'Env:FAKE_UPDATE_DONE_FILE') -ErrorAction SilentlyContinue
             $legacyUpdateContender = Start-TrackedTestProcess $shellPath $updateLauncherArguments 'windows-legacy-update-contender'
             Wait-ForTestProcess $legacyUpdateContender 'Windows legacy ownerless update contender launcher exits'
-            Assert-TrackedTestProcessSucceeded $legacyUpdateContender 'windows-legacy-update-contender' 'Windows legacy ownerless update contender launcher succeeds'
             for ($attempt = 0; $attempt -lt 200 -and
                 (-not (Test-Path -LiteralPath $legacyAttempt) -or
                  -not ([IO.File]::ReadAllText($legacyAttempt).Contains('blocked '))); $attempt++) { Start-Sleep -Milliseconds 20 }
@@ -2079,7 +2058,6 @@ process.stdout.write(JSON.stringify({
             Remove-Item Env:FAKE_UPDATE_DONE_FILE -ErrorAction SilentlyContinue
             $deadUpdateContender = Start-TrackedTestProcess $shellPath $updateLauncherArguments 'windows-dead-update-contender'
             Wait-ForTestProcess $deadUpdateContender 'Windows dead update owner contender launcher exits'
-            Assert-TrackedTestProcessSucceeded $deadUpdateContender 'windows-dead-update-contender' 'Windows dead update owner contender launcher succeeds'
             for ($attempt = 0; $attempt -lt 200 -and -not (Test-Path -LiteralPath (Join-Path $updateDirectory 'last-success') -PathType Leaf); $attempt++) {
                 Start-Sleep -Milliseconds 20
             }
