@@ -657,7 +657,8 @@ function Get-ReceiptManager($Receipt) {
         '^(brew|homebrew)$' { return 'homebrew' }
         '^scoop$' { return 'scoop' }
         '^(winget|windows-package-manager)$' { return 'winget' }
-        '^(archive|git|source|direct|release)$' { return 'archive' }
+        '^git$' { return 'git' }
+        '^(archive|source|direct|release)$' { return 'archive' }
         default { throw "unsupported install method in receipt: $candidate" }
     }
 }

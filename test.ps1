@@ -3128,7 +3128,7 @@ param([switch] $RefreshCache, [switch] $LockHeld, [string] $LockToken)
     $env:CLAUDEX_PROXY_TOKEN = $specialInstallerToken
     $selfUpdateStatus = (& (Join-Path $root 'claudex.ps1') self-update --status | Out-String)
     Assert-True ($selfUpdateStatus.Contains("Installed version: $($packageManifest.version)")) 'self-update status dispatch'
-    Assert-True ($selfUpdateStatus.Contains('Install method: archive')) 'self-update normalizes source installs to archive provenance'
+    Assert-True ($selfUpdateStatus.Contains('Install method: git')) 'self-update preserves git source provenance'
 
     if ($isWindowsPlatform) {
         function New-ArchiveUpdateFixture([string] $Fixture, [string] $Version, [string] $Mode, [bool] $BadChecksum = $false) {
