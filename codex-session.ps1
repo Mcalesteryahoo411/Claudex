@@ -657,21 +657,22 @@ function Invoke-CodexCommand($Codex, [string[]] $Arguments, [switch] $DiscardOut
         $startInfo = New-Object Diagnostics.ProcessStartInfo
         $startInfo.FileName = if ($env:ComSpec) { $env:ComSpec } else { 'cmd.exe' }
         $startInfo.UseShellExecute = $false
-        # cmd expands environment references once and does not recursively
-        # expand percent shaped text inside their values. Keep the trusted shim
-        # path and fixed internal arguments out of the /c source text so valid
-        # literal percent and metacharacter paths remain data, not cmd syntax.
+        # CALL is required for a batch shim's `exit /b` status to return to this
+        # cmd host. Double each placeholder so CALL expands the actual value on
+        # its final parse only. cmd substitution is nonrecursive, so percent
+        # shaped text inside the path remains data, while quotes and /v:off keep
+        # other metacharacters and exclamation marks inert.
         $commandVariable = 'CLAUDEX_CODEX_SHIM_PATH'
         $startInfo.EnvironmentVariables[$commandVariable] = $commandPath
-        $commandParts = @('"%' + $commandVariable + '%"')
+        $commandParts = @('"%%' + $commandVariable + '%%"')
         for ($argumentIndex = 0; $argumentIndex -lt $Arguments.Count; $argumentIndex++) {
             $argumentVariable = 'CLAUDEX_CODEX_SHIM_ARG_' + $argumentIndex
             $argumentValue = [string] $Arguments[$argumentIndex]
             if ($argumentValue -match '["\x00\r\n]') { throw 'internal Codex shim arguments cannot contain quotes or control line breaks' }
             $startInfo.EnvironmentVariables[$argumentVariable] = $argumentValue
-            $commandParts += '"%' + $argumentVariable + '%"'
+            $commandParts += '"%%' + $argumentVariable + '%%"'
         }
-        $startInfo.Arguments = '/d /s /v:off /c "' + ($commandParts -join ' ') + '"'
+        $startInfo.Arguments = '/d /s /v:off /c "call ' + ($commandParts -join ' ') + '"'
         if ($DiscardOutput) {
             $startInfo.RedirectStandardOutput = $true
             $startInfo.RedirectStandardError = $true

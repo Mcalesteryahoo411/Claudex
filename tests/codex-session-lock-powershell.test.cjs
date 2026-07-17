@@ -29,7 +29,8 @@ for (const required of [
   'FileIndexHigh.ToString("x8")',
   "EnvironmentVariables[$commandVariable] = $commandPath",
   "EnvironmentVariables[$argumentVariable] = $argumentValue",
-  "@('\"%' + $commandVariable + '%\"')",
+  "@('\"%%' + $commandVariable + '%%\"')",
+  '/d /s /v:off /c "call ',
   'internal Codex shim arguments cannot contain quotes or control line breaks',
   'pid=$PID`nidentity=$identity`nnonce=$nonce',
   "'.quarantine.'",
@@ -58,8 +59,6 @@ for (const required of [
 
 assert(!source.includes('Directory.Delete(quarantine, true)'),
   'process-exit cleanup can recursively delete a replacement generation');
-assert(!source.includes('/d /s /v:off /c "call '),
-  'Windows Codex shim invocation must not add CALL percent re-expansion');
 assert(!source.includes('function ConvertTo-CodexCmdArgument'),
   'Windows Codex shim paths must not be embedded directly in cmd source text');
 assert(!source.includes(".Replace('%',"),
