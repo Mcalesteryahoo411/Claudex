@@ -1623,7 +1623,8 @@ date +%s > "$tmp/home/.config/claudex/usage-cache/last-success"
 narrow_status=$(printf '%s\n' '{"session_id":"narrow-session","model":{"id":"gpt-5.6-sol"},"effort":{"level":"xhigh"},"context_window":{"used_percentage":42.9}}' | \
   CLAUDEX_STATUSLINE_COLUMNS=40 CLAUDE_CONFIG_DIR="$tmp/home/.config/claudex" "$root/statusline")
 narrow_plain=$(printf '%s' "$narrow_status" | sed $'s/\033\\[[0-9;]*m//g')
-[[ ${#narrow_plain} -le 40 ]]
+narrow_length=$(printf '%s' "$narrow_plain" | jq -Rrs 'length')
+[[ $narrow_length -le 40 ]]
 [[ "$narrow_plain" == *'GPT-5.6 Sol'* ]]
 [[ "$narrow_plain" == *'42% context'* ]]
 [[ "$narrow_plain" != *'Extra-long-capacity-window'* ]]
@@ -1632,7 +1633,8 @@ narrow_plain=$(printf '%s' "$narrow_status" | sed $'s/\033\\[[0-9;]*m//g')
 tiny_status=$(printf '%s\n' '{"session_id":"tiny-session","model":{"id":"gpt-5.6-sol"},"context_window":{"used_percentage":42.9}}' | \
   CLAUDEX_STATUSLINE_COLUMNS=18 CLAUDE_CONFIG_DIR="$tmp/home/.config/claudex" "$root/statusline")
 tiny_plain=$(printf '%s' "$tiny_status" | sed $'s/\033\\[[0-9;]*m//g')
-[[ ${#tiny_plain} -le 18 ]]
+tiny_length=$(printf '%s' "$tiny_plain" | jq -Rrs 'length')
+[[ $tiny_length -le 18 ]]
 [[ "$tiny_plain" == *'…' ]]
 
 solplan_settings="$tmp/home/.config/claudex/settings.json"
