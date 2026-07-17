@@ -676,8 +676,9 @@ function Invoke-CodexCommand($Codex, [string[]] $Arguments, [switch] $DiscardOut
         $bootstrap = @'
 $payloadJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__CLAUDEX_PAYLOAD__'))
 $payload = $payloadJson | ConvertFrom-Json
+$commandArguments = @($payload.Arguments | ForEach-Object { [string] $_ })
 $global:LASTEXITCODE = $null
-& ([string] $payload.Path) @($payload.Arguments | ForEach-Object { [string] $_ })
+& ([string] $payload.Path) @commandArguments
 $commandSucceeded = $?
 $commandExitCode = $LASTEXITCODE
 if ($null -ne $commandExitCode) { exit [int] $commandExitCode }
