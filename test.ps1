@@ -2537,6 +2537,9 @@ process.stdout.write(JSON.stringify({
     Assert-True (-not [bool] $repairedBridge.disabled -and -not [bool] $repairedBridge.expired) 'repaired bridge credential enabled'
 
     $logoutAuthArgsLog = Join-Path $temporary 'codex-logout-auth-args.log'
+    $logoutDiagnosticAuthArgsLog = Join-Path $temporary 'codex-logout-diagnostic-auth-args.log'
+    $logoutDiagnosticStandardOutputLog = Join-Path $temporary 'codex-logout-diagnostic-output.log'
+    $logoutDiagnosticStandardErrorLog = Join-Path $temporary 'codex-logout-diagnostic-error.log'
     $savedLogoutPath = $env:PATH
     $savedFakeSegment = $null
     $savedErrorPreference = $ErrorActionPreference
@@ -2567,6 +2570,12 @@ process.stdout.write(JSON.stringify({
         $shellPath = (Get-Process -Id $PID).Path
         $logoutOutput = & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'codex-session.ps1') logout 2>&1
         $logoutExit = $LASTEXITCODE
+        $env:FAKE_CODEX_AUTH_ARGS_LOG = $logoutDiagnosticAuthArgsLog
+        $logoutDiagnosticProcess = Start-Process -FilePath $shellPath -ArgumentList @(
+            '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $quotedSessionHelper, 'logout'
+        ) -RedirectStandardOutput $logoutDiagnosticStandardOutputLog -RedirectStandardError $logoutDiagnosticStandardErrorLog -PassThru
+        Wait-ForTestProcess $logoutDiagnosticProcess 'failed Codex logout diagnostic process exits'
+        $logoutDiagnosticOutput = [IO.File]::ReadAllText($logoutDiagnosticStandardOutputLog) + [IO.File]::ReadAllText($logoutDiagnosticStandardErrorLog)
     } finally {
         $ErrorActionPreference = $savedErrorPreference
         Remove-Item Env:FAKE_CODEX_FILE_LOGOUT -ErrorAction SilentlyContinue
@@ -2581,15 +2590,17 @@ process.stdout.write(JSON.stringify({
     $logoutAuthArgs = if (Test-Path -LiteralPath $logoutAuthArgsLog -PathType Leaf) { [IO.File]::ReadAllText($logoutAuthArgsLog).Trim() } else { '<missing>' }
     Assert-True ($logoutExit -eq 9) "failed Codex file logout exit propagated; exit=$logoutExit; args=$logoutAuthArgs; output=$($logoutOutput | Out-String)"
     Assert-True (-not (Test-Path -LiteralPath $bridgeAuthFile)) 'failed Codex logout clears bridge credential'
-    $logoutOutputText = $logoutOutput | Out-String -Width 4096
-    Assert-True ($logoutOutputText.Contains('Codex logout failed') -and $logoutOutputText.Contains('local Claudex bridge session was cleared.')) 'failed logout diagnostic'
+    Assert-True ($logoutDiagnosticOutput.Contains('Codex logout failed') -and $logoutDiagnosticOutput.Contains('local Claudex bridge session was cleared.')) 'failed logout diagnostic'
     Assert-True ($logoutAuthArgs -eq 'file:logout') 'Codex logout uses the Claudex file credential store'
+    Assert-True ([IO.File]::ReadAllText($logoutDiagnosticAuthArgsLog).Trim() -eq 'file:logout') 'diagnostic Codex logout uses the Claudex file credential store'
 
     if ($isWindowsPlatform) {
         $cmdOnlyCodexBin = Join-Path $temporary 'cmd-only-codex'
         [IO.Directory]::CreateDirectory($cmdOnlyCodexBin) | Out-Null
         Copy-Item -LiteralPath (Join-Path $fakeBin 'codex.cmd') -Destination (Join-Path $cmdOnlyCodexBin 'codex.cmd')
         $cmdOnlyAuthLog = Join-Path $temporary 'cmd-only-codex-auth.log'
+        $cmdOnlyStandardOutputLog = Join-Path $temporary 'cmd-only-codex-output.log'
+        $cmdOnlyStandardErrorLog = Join-Path $temporary 'cmd-only-codex-error.log'
         $savedCmdOnlyPath = $env:PATH
         $fakeBinPrefix = "$fakeBin$([IO.Path]::PathSeparator)"
         $env:PATH = "$cmdOnlyCodexBin$([IO.Path]::PathSeparator)$($savedCmdOnlyPath.Substring($fakeBinPrefix.Length))"
@@ -2599,13 +2610,18 @@ process.stdout.write(JSON.stringify({
             $ErrorActionPreference = 'Continue'
             $cmdOnlyOutput = & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'codex-session.ps1') status 2>&1
             $cmdOnlyExit = $LASTEXITCODE
+            $cmdOnlyDiagnosticProcess = Start-Process -FilePath $shellPath -ArgumentList @(
+                '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $quotedSessionHelper, 'status'
+            ) -RedirectStandardOutput $cmdOnlyStandardOutputLog -RedirectStandardError $cmdOnlyStandardErrorLog -PassThru
+            Wait-ForTestProcess $cmdOnlyDiagnosticProcess 'Windows Codex batch only diagnostic process exits'
+            $cmdOnlyDiagnosticOutput = [IO.File]::ReadAllText($cmdOnlyStandardOutputLog) + [IO.File]::ReadAllText($cmdOnlyStandardErrorLog)
         } finally {
             $ErrorActionPreference = $savedErrorPreference
             $env:PATH = $savedCmdOnlyPath
             Remove-Item Env:FAKE_CODEX_AUTH_ARGS_LOG -ErrorAction SilentlyContinue
         }
         Assert-True ($cmdOnlyExit -eq 10) 'Windows Codex batch only installation fails closed'
-        Assert-True (($cmdOnlyOutput | Out-String -Width 4096).Contains('codex.ps1 is missing beside the selected batch shim')) 'Windows Codex batch only installation reports its repair path'
+        Assert-True ($cmdOnlyDiagnosticOutput.Contains('codex.ps1 is missing beside the selected batch shim')) 'Windows Codex batch only installation reports its repair path'
         Assert-True (-not (Test-Path -LiteralPath $cmdOnlyAuthLog -PathType Leaf)) 'Windows Codex batch only installation never executes the unreliable batch shim'
 
         $usageHelper = Join-Path $testConfig 'usage-limit.ps1'
