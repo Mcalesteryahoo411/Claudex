@@ -657,9 +657,10 @@ function Resolve-CodexCommand {
     if ($extension -notin @('.cmd', '.bat')) { return $command }
     $powerShellShim = [IO.Path]::ChangeExtension([string] $command.Source, '.ps1')
     if (-not (Test-Path -LiteralPath $powerShellShim -PathType Leaf)) { return $command }
-    $shimCommand = Get-Command $powerShellShim -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($shimCommand) { return $shimCommand }
-    return $command
+    # Windows PowerShell 5.1 may refuse Get-Command on an exact script path
+    # under its process execution policy. The sibling is already inside the
+    # selected Codex installation directory and the child host applies Bypass.
+    return [pscustomobject]@{ Source = $powerShellShim; CommandType = 'ExternalScript' }
 }
 
 function Invoke-CodexCommand($Codex, [string[]] $Arguments, [switch] $DiscardOutput) {
