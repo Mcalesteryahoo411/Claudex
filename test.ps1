@@ -2531,7 +2531,13 @@ process.stdout.write(JSON.stringify({
         Assert-True ($savedLogoutPath.StartsWith($fakeBinPrefix, [StringComparison]::OrdinalIgnoreCase)) 'Windows fake Codex directory is the leading test PATH entry'
         $env:PATH = "$percentCodexBin$([IO.Path]::PathSeparator)$($savedLogoutPath.Substring($fakeBinPrefix.Length))"
         $resolvedPercentCodex = [string] (Get-Command codex -ErrorAction Stop).Source
-        Assert-True ([IO.Path]::GetFullPath($resolvedPercentCodex) -eq [IO.Path]::GetFullPath((Join-Path $percentCodexBin 'codex.cmd'))) 'Codex logout resolves the literal percent and metacharacter shim path'
+        $resolvedPercentCodexPath = [IO.Path]::GetFullPath($resolvedPercentCodex)
+        $resolvedPercentCodexDirectory = [IO.Path]::GetDirectoryName($resolvedPercentCodexPath)
+        $resolvedPercentCodexName = [IO.Path]::GetFileName($resolvedPercentCodexPath)
+        Assert-True (
+            $resolvedPercentCodexDirectory -eq [IO.Path]::GetFullPath($percentCodexBin) -and
+            $resolvedPercentCodexName -in @('codex.cmd', 'codex.ps1')
+        ) 'Codex logout resolves an official shim from the literal percent and metacharacter directory'
     }
     $env:FAKE_CODEX_AUTH_ARGS_LOG = $logoutAuthArgsLog
     $env:FAKE_CODEX_DEFAULT_LOGOUT = '0'
