@@ -48,6 +48,7 @@ function Start-Check {
 
 function Invoke-ExpectedFailedCheck {
     $savedErrorPreference = $ErrorActionPreference
+    $exitCode = 1
     try {
         # Windows PowerShell 5.1 promotes a native child's stderr to a
         # NativeCommandError when the caller uses Stop. The nonzero result is
@@ -55,8 +56,13 @@ function Invoke-ExpectedFailedCheck {
         # the diagnostic stream to abort the regression before its assertions.
         $ErrorActionPreference = 'Continue'
         & $shell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $scriptPath -Check 2>$null | Out-Null
-        return [int] $LASTEXITCODE
+        $exitCode = [int] $LASTEXITCODE
     } finally { $ErrorActionPreference = $savedErrorPreference }
+    # The probe result is returned explicitly. Do not let its expected native
+    # failure become the containing test process exit code after all assertions
+    # pass.
+    $global:LASTEXITCODE = 0
+    return $exitCode
 }
 
 try {
