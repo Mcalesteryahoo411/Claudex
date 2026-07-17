@@ -651,7 +651,10 @@ function Get-CodexSourceSnapshot {
 
 function ConvertTo-CodexCmdArgument([string] $Value) {
     if ($null -eq $Value) { $Value = '' }
-    return '"' + $Value.Replace('%', '%%').Replace('"', '""') + '"'
+    # cmd.exe parses the /c text once and CALL expands it again. Four percent
+    # signs survive both passes as one literal percent without expanding an
+    # environment shaped segment in a trusted executable path.
+    return '"' + $Value.Replace('%', '%%%%').Replace('"', '""') + '"'
 }
 
 $script:lastCodexCommandExitCode = 1

@@ -86,6 +86,8 @@ assert.doesNotMatch(suite, /\$strictAuthProcess\.ExitCode/,
   'PowerShell 5.1 process objects must not be the authority for the expected credential failure exit');
 assert.match(suite, /FAKE_CODEX_DEFAULT_LOGOUT = '0'[\s\S]*FAKE_CODEX_FILE_LOGOUT = '9'[\s\S]*\$logoutExit -eq 9/,
   'the Windows logout fixture must distinguish the file credential route from the default route');
+assert.match(suite, /%CLAUDEX_FAKE_SEGMENT%&codex-shim[\s\S]*CLAUDEX_FAKE_SEGMENT = 'must-not-expand'[\s\S]*\$logoutExit -eq 9/,
+  'the Windows batch exit regression must execute through a literal percent and metacharacter path');
 assert.match(suite, /Remove-TestPathWithRetry \$temporary/,
   'Windows suite cleanup must not mask a primary failure with a transient open file handle');
 

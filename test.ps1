@@ -2456,6 +2456,20 @@ process.stdout.write(JSON.stringify({
     Assert-True (-not [bool] $repairedBridge.disabled -and -not [bool] $repairedBridge.expired) 'repaired bridge credential enabled'
 
     $logoutAuthArgsLog = Join-Path $temporary 'codex-logout-auth-args.log'
+    $savedLogoutPath = $env:PATH
+    $savedFakeSegment = $null
+    if ($isWindowsPlatform) {
+        $percentCodexBin = Join-Path $temporary '%CLAUDEX_FAKE_SEGMENT%&codex-shim'
+        [IO.Directory]::CreateDirectory($percentCodexBin) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $fakeBin 'codex.cmd') -Destination (Join-Path $percentCodexBin 'codex.cmd')
+        $savedFakeSegment = [Environment]::GetEnvironmentVariable('CLAUDEX_FAKE_SEGMENT', 'Process')
+        $env:CLAUDEX_FAKE_SEGMENT = 'must-not-expand'
+        $fakeBinPrefix = "$fakeBin$([IO.Path]::PathSeparator)"
+        Assert-True ($savedLogoutPath.StartsWith($fakeBinPrefix, [StringComparison]::OrdinalIgnoreCase)) 'Windows fake Codex directory is the leading test PATH entry'
+        $env:PATH = "$percentCodexBin$([IO.Path]::PathSeparator)$($savedLogoutPath.Substring($fakeBinPrefix.Length))"
+        $resolvedPercentCodex = [string] (Get-Command codex -ErrorAction Stop).Source
+        Assert-True ([IO.Path]::GetFullPath($resolvedPercentCodex) -eq [IO.Path]::GetFullPath((Join-Path $percentCodexBin 'codex.cmd'))) 'Codex logout resolves the literal percent and metacharacter shim path'
+    }
     $env:FAKE_CODEX_AUTH_ARGS_LOG = $logoutAuthArgsLog
     $env:FAKE_CODEX_DEFAULT_LOGOUT = '0'
     $env:FAKE_CODEX_FILE_LOGOUT = '9'
@@ -2470,6 +2484,11 @@ process.stdout.write(JSON.stringify({
         Remove-Item Env:FAKE_CODEX_FILE_LOGOUT -ErrorAction SilentlyContinue
         Remove-Item Env:FAKE_CODEX_DEFAULT_LOGOUT -ErrorAction SilentlyContinue
         Remove-Item Env:FAKE_CODEX_AUTH_ARGS_LOG -ErrorAction SilentlyContinue
+        if ($isWindowsPlatform) {
+            $env:PATH = $savedLogoutPath
+            if ($null -eq $savedFakeSegment) { Remove-Item Env:CLAUDEX_FAKE_SEGMENT -ErrorAction SilentlyContinue }
+            else { $env:CLAUDEX_FAKE_SEGMENT = $savedFakeSegment }
+        }
     }
     $logoutAuthArgs = if (Test-Path -LiteralPath $logoutAuthArgsLog -PathType Leaf) { [IO.File]::ReadAllText($logoutAuthArgsLog).Trim() } else { '<missing>' }
     Assert-True ($logoutExit -eq 9) "failed Codex file logout exit propagated; exit=$logoutExit; args=$logoutAuthArgs; output=$($logoutOutput | Out-String)"
