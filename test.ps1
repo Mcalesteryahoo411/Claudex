@@ -2385,11 +2385,7 @@ process.stdout.write(JSON.stringify({
     Write-TestStage 'starting live account watcher regressions'
     $accountWatcher = Start-Process @watchParameters
     try {
-        foreach ($attempt in 1..50) {
-            if (Test-Path -LiteralPath $authWatchReady -PathType Leaf) { break }
-            Start-Sleep -Milliseconds 20
-        }
-        Assert-True (Test-Path -LiteralPath $authWatchReady -PathType Leaf) 'account watcher initialized'
+        Wait-ForTestPath $authWatchReady 'account watcher initialized'
         [IO.File]::WriteAllText((Join-Path $testCodexDir 'auth.json'), '{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","last_refresh":"2026-07-15T02:00:00Z","tokens":{"access_token":"codex-switched-access","refresh_token":"codex-switched-refresh","id_token":"codex-switched-id","account_id":"account-switched"}}', $utf8)
         $accountSwitchAttempts = 200
         foreach ($attempt in 1..$accountSwitchAttempts) {
