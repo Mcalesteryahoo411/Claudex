@@ -326,6 +326,68 @@ if "%~1"=="logout" (
 )
 exit /b 2
 '@, $utf8)
+        [IO.File]::WriteAllText((Join-Path $fakeBin 'codex.ps1'), @'
+$utf8 = New-Object Text.UTF8Encoding($false)
+$scriptArguments = @($args)
+function Get-FakeArgument([int] $Index) {
+    if ($Index -lt $scriptArguments.Count) { return [string] $scriptArguments[$Index] }
+    return ''
+}
+function Write-FakeLog([string] $Path, [string] $Text, [bool] $Append = $false) {
+    if ([string]::IsNullOrEmpty($Path)) { return }
+    if ($Append) { [IO.File]::AppendAllText($Path, $Text + [Environment]::NewLine, $utf8) }
+    else { [IO.File]::WriteAllText($Path, $Text + [Environment]::NewLine, $utf8) }
+}
+$arg0 = Get-FakeArgument 0
+$arg1 = Get-FakeArgument 1
+$arg2 = Get-FakeArgument 2
+$arg3 = Get-FakeArgument 3
+if ($env:FAKE_CODEX_NATIVE_LOG) {
+    $nativeLines = @(
+        "ARG1=$arg0", "ARG2=$arg1", "ARG3=$arg2",
+        "BASE=$env:ANTHROPIC_BASE_URL", "AUTH_TOKEN=$env:ANTHROPIC_AUTH_TOKEN",
+        "PROXY_TOKEN=$env:CLAUDEX_PROXY_TOKEN", "MANAGED=$env:CLAUDEX_MANAGED_SESSION",
+        "BUN=$env:BUN_OPTIONS"
+    ) -join [Environment]::NewLine
+    [IO.File]::WriteAllText($env:FAKE_CODEX_NATIVE_LOG, $nativeLines + [Environment]::NewLine, $utf8)
+    if ($env:FAKE_CODEX_NATIVE_EXIT) { exit [int] $env:FAKE_CODEX_NATIVE_EXIT }
+}
+if ($arg0 -eq 'app-server') {
+    Write-Output '{"id":1,"result":{}}'
+    Write-Output '{"id":2,"result":{"rateLimits":{"limitId":"codex","limitName":"Codex","planType":"pro","primary":{"usedPercent":63,"windowDurationMins":10080,"resetsAt":1784705933}},"rateLimitsByLimitId":{}}}'
+    exit 0
+}
+if ($arg0 -eq '-c') {
+    Write-FakeLog $env:FAKE_CODEX_CONFIG_ARG_LOG $arg1
+    Write-FakeLog $env:FAKE_CODEX_AUTH_ARGS_LOG "file:$arg2 $arg3" $true
+    if ($arg2 -eq 'login' -and $arg3 -eq 'status') {
+        if ($env:FAKE_CODEX_FILE_STATUS) { exit [int] $env:FAKE_CODEX_FILE_STATUS }
+        if ($env:FAKE_CODEX_LOGGED_OUT -eq '1') { exit 1 }
+        exit 0
+    }
+    if ($arg2 -eq 'logout') {
+        if ($env:FAKE_CODEX_FILE_LOGOUT) { exit [int] $env:FAKE_CODEX_FILE_LOGOUT }
+        if ($env:FAKE_CODEX_LOGOUT_EXIT) { exit [int] $env:FAKE_CODEX_LOGOUT_EXIT }
+        exit 0
+    }
+    if ($arg2 -eq 'login') {
+        Write-FakeLog $env:FAKE_CODEX_LOGIN_LOG 'login' $true
+        exit 0
+    }
+}
+Write-FakeLog $env:FAKE_CODEX_AUTH_ARGS_LOG "default:$arg0 $arg1" $true
+if ($env:FAKE_CODEX_LOGGED_OUT -eq '1') { exit 1 }
+if ($arg0 -eq 'login' -and $arg1 -eq 'status') {
+    if ($env:FAKE_CODEX_DEFAULT_STATUS) { exit [int] $env:FAKE_CODEX_DEFAULT_STATUS }
+    exit 0
+}
+if ($arg0 -eq 'logout') {
+    if ($env:FAKE_CODEX_DEFAULT_LOGOUT) { exit [int] $env:FAKE_CODEX_DEFAULT_LOGOUT }
+    if ($env:FAKE_CODEX_LOGOUT_EXIT) { exit [int] $env:FAKE_CODEX_LOGOUT_EXIT }
+    exit 0
+}
+exit 2
+'@, $utf8)
         # Child PowerShell regressions cannot inherit the in-process `claude`
         # function above. Provide the same capability probe as an executable
         # fixture so those tests reach proxy recovery instead of exiting early.
@@ -2462,6 +2524,7 @@ process.stdout.write(JSON.stringify({
         $percentCodexBin = Join-Path $temporary '%CLAUDEX_FAKE_SEGMENT%&codex-shim'
         [IO.Directory]::CreateDirectory($percentCodexBin) | Out-Null
         Copy-Item -LiteralPath (Join-Path $fakeBin 'codex.cmd') -Destination (Join-Path $percentCodexBin 'codex.cmd')
+        Copy-Item -LiteralPath (Join-Path $fakeBin 'codex.ps1') -Destination (Join-Path $percentCodexBin 'codex.ps1')
         $savedFakeSegment = [Environment]::GetEnvironmentVariable('CLAUDEX_FAKE_SEGMENT', 'Process')
         $env:CLAUDEX_FAKE_SEGMENT = 'must-not-expand'
         $fakeBinPrefix = "$fakeBin$([IO.Path]::PathSeparator)"

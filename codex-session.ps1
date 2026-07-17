@@ -650,15 +650,48 @@ function Get-CodexSourceSnapshot {
 }
 
 $script:lastCodexCommandExitCode = 1
+function Resolve-CodexCommand {
+    $command = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $command -or -not $command.Source) { return $command }
+    $extension = [IO.Path]::GetExtension([string] $command.Source).ToLowerInvariant()
+    if ($extension -notin @('.cmd', '.bat')) { return $command }
+    $powerShellShim = [IO.Path]::ChangeExtension([string] $command.Source, '.ps1')
+    if (-not (Test-Path -LiteralPath $powerShellShim -PathType Leaf)) { return $command }
+    $shimCommand = Get-Command $powerShellShim -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($shimCommand) { return $shimCommand }
+    return $command
+}
+
 function Invoke-CodexCommand($Codex, [string[]] $Arguments, [switch] $DiscardOutput) {
     $commandPath = [string] $Codex.Source
-    # PowerShell's native invocation boundary already handles variable command
-    # paths as data, including literal percent signs and cmd metacharacters, and
-    # preserves a batch shim's exit status in LASTEXITCODE. The arguments here
-    # are fixed internal auth commands with a cmd safe single quoted TOML value.
+    $extension = [IO.Path]::GetExtension($commandPath).ToLowerInvariant()
     $global:LASTEXITCODE = $null
-    if ($DiscardOutput) { & $commandPath @Arguments *> $null }
-    else { & $commandPath @Arguments }
+    if ($Codex.CommandType -eq 'ExternalScript' -or $extension -eq '.ps1') {
+        # A script shim can call exit, so run it outside this process. Passing a
+        # base64 encoded JSON payload keeps paths and argv as data even when
+        # they contain percent signs, metacharacters, quotes, or whitespace.
+        $payload = @{ Path = $commandPath; Arguments = @($Arguments) } | ConvertTo-Json -Compress
+        $payloadBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
+        $bootstrap = @'
+$payloadJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__CLAUDEX_PAYLOAD__'))
+$payload = $payloadJson | ConvertFrom-Json
+$global:LASTEXITCODE = $null
+& ([string] $payload.Path) @($payload.Arguments | ForEach-Object { [string] $_ })
+$commandSucceeded = $?
+$commandExitCode = $LASTEXITCODE
+if ($null -ne $commandExitCode) { exit [int] $commandExitCode }
+if ($commandSucceeded) { exit 0 }
+exit 1
+'@.Replace('__CLAUDEX_PAYLOAD__', $payloadBase64)
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap))
+        $powerShellPath = (Get-Process -Id $PID).Path
+        $childArguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded)
+        if ($DiscardOutput) { & $powerShellPath @childArguments *> $null }
+        else { & $powerShellPath @childArguments }
+    } else {
+        if ($DiscardOutput) { & $commandPath @Arguments *> $null }
+        else { & $commandPath @Arguments }
+    }
     $commandSucceeded = $?
     $commandExitCode = $LASTEXITCODE
     $script:lastCodexCommandExitCode = if ($null -ne $commandExitCode) { [int] $commandExitCode } elseif ($commandSucceeded) { 0 } else { 1 }
@@ -666,7 +699,7 @@ function Invoke-CodexCommand($Codex, [string[]] $Arguments, [switch] $DiscardOut
 }
 
 function Test-CodexLogin {
-    $codex = Get-Command codex -ErrorAction SilentlyContinue
+    $codex = Resolve-CodexCommand
     if (-not $codex) { return $false }
     try {
         Invoke-CodexCommand -Codex $codex -Arguments @('-c', "cli_auth_credentials_store='file'", 'login', 'status') -DiscardOutput
@@ -684,11 +717,11 @@ function Sync-Session {
     # boundary and repeat the observation before deleting any bridge or
     # account-scoped state.
     while ($true) {
-        $codex = Get-Command codex -ErrorAction SilentlyContinue
+        $codex = Resolve-CodexCommand
         if (-not $codex) {
             Acquire-SessionSyncLock
             try {
-                if (Get-Command codex -ErrorAction SilentlyContinue) { continue }
+                if (Resolve-CodexCommand) { continue }
                 Clear-OwnedSessionState
             } finally { Release-SessionSyncLock }
             Write-Failure 'Codex CLI was not found. Install Codex, run `codex login`, and retry.'
@@ -933,7 +966,7 @@ switch ($Action) {
         exit $result
     }
     'login' {
-        $codex = Get-Command codex -ErrorAction SilentlyContinue
+        $codex = Resolve-CodexCommand
         if (-not $codex) { Write-Failure 'Codex CLI was not found. Install Codex and retry.'; exit 10 }
         Write-Output 'Claudex is opening the official Codex sign-in flow...'
         Invoke-CodexCommand -Codex $codex -Arguments @('-c', "cli_auth_credentials_store='file'", 'login')
@@ -945,7 +978,7 @@ switch ($Action) {
     'logout' {
         Acquire-SessionSyncLock
         try {
-            $codex = Get-Command codex -ErrorAction SilentlyContinue
+            $codex = Resolve-CodexCommand
             if ($codex) {
                 Invoke-CodexCommand -Codex $codex -Arguments @('-c', "cli_auth_credentials_store='file'", 'logout')
                 $exitCode = $script:lastCodexCommandExitCode
