@@ -2094,6 +2094,12 @@ process.stdout.write(JSON.stringify({
             Assert-True ($updateEnvironment.Contains("AUTH_TOKEN=`r`n") -or $updateEnvironment.Contains("AUTH_TOKEN=`n")) 'Windows updater does not inherit provider token'
             Assert-True ($updateEnvironment.Contains("SUBAGENT=`r`n") -or $updateEnvironment.Contains("SUBAGENT=`n")) 'Windows updater does not inherit subagent routing'
 
+            $completedUpdaterPid = [int] (@(Get-Content -LiteralPath $updateLog)[0])
+            $completedUpdater = Get-Process -Id $completedUpdaterPid -ErrorAction SilentlyContinue
+            if ($completedUpdater) {
+                Assert-True ($completedUpdater.WaitForExit(20000)) 'Windows completed updater process exits'
+            }
+            Assert-True ($null -eq (Get-Process -Id $completedUpdaterPid -ErrorAction SilentlyContinue)) 'Windows completed updater is no longer running'
             Assert-True (Remove-TestPathWithRetry $updateDirectory) 'Windows completed updater releases its redirected log handles'
             Remove-Item -LiteralPath $updateLog -Force -ErrorAction SilentlyContinue
             [IO.Directory]::CreateDirectory((Join-Path $updateDirectory 'lock')) | Out-Null
