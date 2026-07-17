@@ -1529,14 +1529,14 @@ process.stdout.write(JSON.stringify({
         [IO.File]::WriteAllText((Join-Path $modelLock 'owner'), "pid=$PID`nidentity=$testProcessIdentity`nnonce=live-windows-state-owner`n", $utf8)
         (Get-Item -LiteralPath $modelLock).LastWriteTimeUtc = [DateTime]::Parse('2000-01-01T00:00:00Z').ToUniversalTime()
         $shellPath = (Get-Process -Id $PID).Path
-        & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'claudex.ps1') --version | Out-Null
+        & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'claudex.ps1') --terra windows-lock-fallback-test | Out-Null
         Assert-True (([IO.File]::ReadAllText((Join-Path $modelLock 'owner'))).Contains('nonce=live-windows-state-owner')) 'Windows old live state owner is not stolen'
         Remove-Item -LiteralPath $modelLock -Recurse -Force
 
         $savedForcedLockSkipUpdate = $env:CLAUDEX_SKIP_AUTO_UPDATE
         $env:CLAUDEX_SKIP_AUTO_UPDATE = '1'
         $env:CLAUDEX_TEST_FORCE_HARDLINK_FAILURE = '1'
-        & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'claudex.ps1') --version | Out-Null
+        & $shellPath -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'claudex.ps1') --terra windows-lock-publication-failure-test | Out-Null
         Remove-Item Env:CLAUDEX_TEST_FORCE_HARDLINK_FAILURE
         if ($null -eq $savedForcedLockSkipUpdate) { Remove-Item Env:CLAUDEX_SKIP_AUTO_UPDATE -ErrorAction SilentlyContinue } else { $env:CLAUDEX_SKIP_AUTO_UPDATE = $savedForcedLockSkipUpdate }
         Assert-True (-not (Test-Path -LiteralPath $modelLock)) 'Windows exclusive-create fallback publishes and releases state locks'
@@ -1549,7 +1549,7 @@ process.stdout.write(JSON.stringify({
         Assert-True (@(Get-ChildItem -LiteralPath $runDirectory -Directory -Filter 'model-display.lock.quarantine.*' -ErrorAction SilentlyContinue).Count -eq 0) 'Windows publication failure leaves no quarantine barrier'
 
         $lockLauncherArguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-            ('"' + (Join-Path $root 'claudex.ps1') + '"'), '--version')
+            ('"' + (Join-Path $root 'claudex.ps1') + '"'), '--terra', 'windows-lock-aba-test')
         $env:CLAUDEX_TEST_LOCK_MATCH = 'model-display.lock'
         $env:CLAUDEX_TEST_LOCK_AFTER_MKDIR_READY = Join-Path $temporary 'windows-aba-a-mkdir'
         $env:CLAUDEX_TEST_LOCK_AFTER_MKDIR_CONTINUE = Join-Path $temporary 'windows-aba-a-continue'
