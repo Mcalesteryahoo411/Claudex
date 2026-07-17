@@ -566,7 +566,8 @@ printf 'pid=%s\nidentity=%s\nnonce=%s\n' "$$" "$test_identity" 'replacement-y-12
 : > "$xy_before_continue"
 wait_for_file "$xy_after_ready" 'generation X post-rename pause'
 z_contended_ready="$tmp/refresh-z-contended-ready"
-CLAUDEX_TEST_MODE=1 CLAUDEX_TEST_REFRESH_LOCK_CONTENDED_READY_FILE="$z_contended_ready" \
+CLAUDEX_TEST_MODE=1 CLAUDEX_TEST_REFRESH_PROCESS_IDENTITY="$test_identity" \
+  CLAUDEX_TEST_REFRESH_LOCK_CONTENDED_READY_FILE="$z_contended_ready" \
   "$root/usage-limit" --refresh-cache >"$tmp/refresh-z.out" 2>"$tmp/refresh-z.err" & refresh_z_pid=$!
 wait_for_file "$z_contended_ready" 'generation Z to observe the quarantine barrier'
 if [[ -r "$CLAUDEX_CONFIG_DIR/usage-cache/refresh.lock/generation" ]]; then
